@@ -16,6 +16,13 @@ node bin/cc-synapse.js --all --dev
 
 `--dev` 让前端文件每次请求都重新读取，改完刷新即可，不用重启。常用的还有 `--port` 固定端口和 `--no-open` 不自动开浏览器。
 
+上面这条是相对路径，只能在仓库目录里跑。想在别的项目目录下试，先挂一次全局命令：
+
+```powershell
+npm link          # 之后任意目录都能用 cc-synapse，且改动立即生效
+npm unlink -g cc-synapse   # 不需要时解除
+```
+
 想用别处的会话数据（比如测试夹具）：
 
 ```powershell

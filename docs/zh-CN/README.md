@@ -19,6 +19,9 @@ npm install -g cc-synapse
 cc-synapse
 ```
 
+包还没发布到 npm 时，在仓库目录里 `npm link` 一次，`cc-synapse` 就能在任意目录使用；
+`node bin/cc-synapse.js` 是相对路径，只在仓库目录下有效。
+
 ## 界面
 
 **侧边栏**列出当前工作区的会话，标了「分支」的是从别的会话续写出来的。切换顶部的下拉框可以换工作区。

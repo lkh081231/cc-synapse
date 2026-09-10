@@ -19,6 +19,10 @@ npm install -g cc-synapse
 cc-synapse
 ```
 
+Before the package is published, run `npm link` once in the repository and
+`cc-synapse` works from any directory. `node bin/cc-synapse.js` is a relative
+path and only runs from the repository itself.
+
 ## The interface
 
 **The sidebar** lists the sessions in the current workspace. Ones marked 分支 continue from another session. The dropdown above switches workspaces.

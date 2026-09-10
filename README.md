@@ -36,6 +36,18 @@ npx cc-synapse
 npx cc-synapse --all
 ```
 
+### 从源码运行
+
+包还没发布到 npm 时，先在本仓库里挂上全局命令：
+
+```powershell
+corepack pnpm install
+npm link
+```
+
+之后 `cc-synapse` 在任意目录都能用，改动源码立即生效，不需要重新链接。
+`node bin/cc-synapse.js` 只在本仓库目录下有效——它是相对路径。
+
 ## 它做什么
 
 - **一次提问就是一个节点。** 一轮对话里 Claude 可能回复十几段、调用几十次工具，这些全部收进同一张卡片；`AskUserQuestion` 的回答自成一个节点，因为那也是一次真实的用户输入。
