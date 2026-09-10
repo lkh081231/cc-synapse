@@ -100,3 +100,13 @@ test('treats a missing file as an empty reset', async () => {
   assert.equal(records.length, 0)
   assert.equal(reset, true)
 })
+
+test('tolerates CRLF line endings', async () => {
+  const file = await scratch()
+  const reader = new JsonlReader()
+  // 真实的会话文件是 LF，但 fixture 经过某些 checkout 设置会变成 CRLF。
+  await writeFile(file, '{"n":1}\r\n{"text":"中文"}\r\n', 'utf8')
+
+  const { records } = await reader.read(file)
+  assert.deepEqual(records.map(record => record.value), [{ n: 1 }, { text: '中文' }])
+})

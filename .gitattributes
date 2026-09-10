@@ -1,0 +1,2 @@
+# 会话记录按字节读取，行尾必须与真实的 Claude Code 文件一致。
+*.jsonl -text eol=lf
