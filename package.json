@@ -1,45 +1,49 @@
 {
-  "name": "dsh-synapse",
-  "version": "0.4.1",
-  "description": "A visual, non-linear conversation workspace plugin for DeepSeek Harness.",
+  "name": "cc-synapse",
+  "version": "0.1.0",
+  "description": "A visual, non-linear conversation map for Claude Code sessions.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
-    "./client": "./client.js",
-    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
+    "bin",
+    "src",
     "index.js",
-    "client.js",
     "app.js",
-    "deepseek-mark.svg",
     "styles.css",
     "docs",
-    "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "node --check index.js && node --check client.js && node --check app.js",
+    "build": "node scripts/check.js",
     "prepare": "pnpm run build",
+    "start": "node bin/cc-synapse.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=22.19.0"
   },
   "license": "MIT",
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime"
-      ],
-      "immediately": false
-    }
+  "bin": {
+    "cc-synapse": "./bin/cc-synapse.js"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "conversation-map",
+    "canvas",
+    "visualization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lkh081231/cc-synapse.git"
+  },
+  "homepage": "https://github.com/lkh081231/cc-synapse#readme",
+  "bugs": {
+    "url": "https://github.com/lkh081231/cc-synapse/issues"
   }
 }

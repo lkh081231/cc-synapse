@@ -10,18 +10,6 @@ test('uses one camera transform without browser scroll coordinates', async () =>
   assert.doesNotMatch(source, /canvasScroll|canvasPadding|canvasDomShift|canvasMetrics|viewport\.scrollLeft|viewport\.scrollTop/)
 })
 
-test('reuses the live map iframe and retries initialization only after iframe load', async () => {
-  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  const openFlow = source.slice(source.indexOf('let mapOpenFallback'), source.indexOf('const onMessage'))
-  const open = openFlow.slice(openFlow.indexOf('const open ='), openFlow.indexOf('const onFrameLoad'))
-
-  assert.doesNotMatch(openFlow, /frame\.src\s*=/)
-  assert.match(openFlow, /const onFrameLoad/)
-  assert.match(openFlow, /if \(mapOpening\) send\('synapse:map-opened'\)/)
-  assert.ok(open.indexOf('overlay.hidden = false') < open.indexOf("send('synapse:map-opened')"))
-  assert.match(open, /overlay\.classList\.add\('is-opening'\)/)
-})
-
 test('keeps the canvas viewport across dialog/map toggles and recenters on real session switches', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const mapOpened = source.slice(source.indexOf("if (data.type === 'synapse:map-opened')"), source.indexOf("if (data.type === 'synapse:workspaces')"))
@@ -51,14 +39,6 @@ test('preserves each card answer scroll across canvas re-renders', async () => {
   assert.match(render, /card\.dataset\.cardId/)
   assert.match(render, /\.thread-card\[data-card-id=/)
   assert.match(render, /\.thread-answer`\)\s*if \(answer instanceof HTMLElement\) answer\.scrollTop = scrollTop/)
-})
-
-test('activating a session from the map syncs DSH without closing the map', async () => {
-  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  const activate = source.slice(source.indexOf("'synapse:activate-session'"), source.indexOf("'synapse:fork-session'"))
-
-  assert.match(activate, /ctx\.sessions\.open\(event\.data\.sessionId\)/)
-  assert.doesNotMatch(activate, /close\(\)/)
 })
 
 test('selecting a session in the sidebar syncs the DSH current session', async () => {
@@ -181,16 +161,6 @@ test('switching workspaces syncs DSH to the most recently updated session', asyn
 
   assert.match(select, /updatedAt/)
   assert.match(select, /post\('synapse:activate-session'/)
-})
-
-test('mirrors DSH theme changes into the map', async () => {
-  const clientSource = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  const appSource = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-
-  assert.match(clientSource, /data-ds-dark-theme/)
-  assert.match(clientSource, /synapse:theme/)
-  assert.match(appSource, /data\.type === 'synapse:theme'/)
-  assert.match(appSource, /document\.documentElement\.dataset\.theme/)
 })
 
 test('leaves text selections inside cards intact', async () => {
