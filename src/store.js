@@ -137,6 +137,81 @@ export class WorkspaceStore {
     }, { deferred: true })
   }
 
+  /**
+   * 把一次扫描的结果同步进画布。
+   *
+   * 会话内容每次都从 JSONL 重建——那是只读的源，重建总是对的。
+   * 但画布坐标和归档状态是用户自己摆出来的，必须跨扫描保留：
+   * 前者靠 id 匹配沿用旧坐标，后者靠 hiddenSessionIds 拦住已归档的会话。
+   *
+   * @param {Array<{id,cwd,title,createdAt,updatedAt,messages,parentId,seedSeq,confidence}>} sessions
+   */
+  async syncClaude(sessions) {
+    return this.mutate(() => {
+      if (!Array.isArray(sessions)) throw new InputError('sessions 必须是数组')
+      const hidden = new Set(this.state.hiddenSessionIds)
+      const visible = sessions.filter(item => typeof item?.id === 'string' && item.id !== '' && !hidden.has(item.id))
+
+      // 记住旧坐标，避免重建时把用户摆好的布局冲掉。
+      const positions = new Map()
+      for (const workspace of this.state.workspaces) {
+        for (const thread of workspace.threads) {
+          if (thread.ccSessionId != null) positions.set(thread.ccSessionId, thread.position)
+        }
+      }
+
+      this.state.workspaces = this.state.workspaces.filter(workspace => workspace.kind !== 'claude')
+
+      const byCwd = new Map()
+      for (const item of visible) {
+        const cwd = typeof item.cwd === 'string' && item.cwd !== '' ? item.cwd : '未知目录'
+        if (!byCwd.has(cwd)) byCwd.set(cwd, [])
+        byCwd.get(cwd).push(item)
+      }
+
+      const now = new Date().toISOString()
+      for (const [cwd, items] of byCwd) {
+        const workspace = {
+          id: randomUUID(),
+          kind: 'claude',
+          cwd,
+          title: workspaceTitle(cwd, 'Claude 会话'),
+          createdAt: items.reduce((min, item) => (item.createdAt ?? now) < min ? (item.createdAt ?? now) : min, now),
+          updatedAt: items.reduce((max, item) => (item.updatedAt ?? '') > max ? item.updatedAt : max, ''),
+          threads: [],
+        }
+        const ids = new Map()
+        for (const [index, item] of items.entries()) {
+          const thread = {
+            id: randomUUID(),
+            title: (item.title ?? 'Claude 会话').slice(0, MAX_TITLE_LENGTH),
+            parentId: null,
+            sourceParentSessionId: typeof item.parentId === 'string' ? item.parentId : null,
+            sourceSeedLength: Number.isSafeInteger(item.seedSeq) ? item.seedSeq : null,
+            ccSessionId: item.id,
+            ccSessionTitle: (item.title ?? null) === null ? null : item.title.slice(0, MAX_TITLE_LENGTH),
+            sourceFile: item.sourceFile ?? null,
+            confidence: typeof item.confidence === 'number' ? item.confidence : 0,
+            color: TOPIC_COLORS[index % TOPIC_COLORS.length],
+            position: positions.get(item.id) ?? { x: 86, y: 82 },
+            createdAt: item.createdAt ?? now,
+            updatedAt: item.updatedAt ?? now,
+            messages: Array.isArray(item.messages) ? item.messages : [],
+            pendingProcess: [],
+          }
+          workspace.threads.push(thread)
+          ids.set(item.id, thread.id)
+        }
+        // 父可能排在子后面，所以等全部建好再接线。
+        for (const thread of workspace.threads) {
+          if (thread.sourceParentSessionId !== null) thread.parentId = ids.get(thread.sourceParentSessionId) ?? null
+        }
+        if (workspace.threads.length > 0) this.state.workspaces.push(workspace)
+      }
+      return this.list()
+    }, { deferred: true })
+  }
+
   async addMessage(threadId, text) {
     return this.mutate(() => {
       const { workspace, thread } = this.locateThread(threadId)
@@ -171,7 +246,8 @@ export class WorkspaceStore {
         }
       }
       for (const item of workspace.threads) {
-        if (removal.has(item.id) && item.dshSessionId !== null && !this.state.hiddenSessionIds.includes(item.dshSessionId)) this.state.hiddenSessionIds.push(item.dshSessionId)
+        const sessionId = item.ccSessionId ?? item.dshSessionId ?? null
+        if (removal.has(item.id) && sessionId !== null && !this.state.hiddenSessionIds.includes(sessionId)) this.state.hiddenSessionIds.push(sessionId)
       }
       workspace.threads = workspace.threads.filter(item => !removal.has(item.id))
       workspace.updatedAt = new Date().toISOString()
