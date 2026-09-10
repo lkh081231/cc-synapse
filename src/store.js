@@ -152,11 +152,17 @@ export class WorkspaceStore {
       const hidden = new Set(this.state.hiddenSessionIds)
       const visible = sessions.filter(item => typeof item?.id === 'string' && item.id !== '' && !hidden.has(item.id))
 
-      // 记住旧坐标，避免重建时把用户摆好的布局冲掉。
+      // 记住旧的 id 和坐标：内容可以重建，但前端拿在手里的标识不能变，
+      // 否则每次刷新都会丢掉选中、展开这些界面状态，用户摆的位置也会被冲掉。
       const positions = new Map()
+      const threadIds = new Map()
+      const workspaceIds = new Map()
       for (const workspace of this.state.workspaces) {
+        if (workspace.kind === 'claude' && workspace.cwd != null) workspaceIds.set(workspace.cwd, workspace.id)
         for (const thread of workspace.threads) {
-          if (thread.ccSessionId != null) positions.set(thread.ccSessionId, thread.position)
+          if (thread.ccSessionId == null) continue
+          positions.set(thread.ccSessionId, thread.position)
+          threadIds.set(thread.ccSessionId, thread.id)
         }
       }
 
@@ -172,7 +178,7 @@ export class WorkspaceStore {
       const now = new Date().toISOString()
       for (const [cwd, items] of byCwd) {
         const workspace = {
-          id: randomUUID(),
+          id: workspaceIds.get(cwd) ?? randomUUID(),
           kind: 'claude',
           cwd,
           title: workspaceTitle(cwd, 'Claude 会话'),
@@ -183,7 +189,7 @@ export class WorkspaceStore {
         const ids = new Map()
         for (const [index, item] of items.entries()) {
           const thread = {
-            id: randomUUID(),
+            id: threadIds.get(item.id) ?? randomUUID(),
             title: (item.title ?? 'Claude 会话').slice(0, MAX_TITLE_LENGTH),
             parentId: null,
             sourceParentSessionId: typeof item.parentId === 'string' ? item.parentId : null,
