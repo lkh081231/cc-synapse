@@ -1,104 +1,88 @@
-# Architecture and runtime boundaries
+# 架构
 
-## Purpose
+cc-synapse 由两半组成：一个读 `~/.claude` 的 Node 服务，和一个不依赖任何框架、由浏览器直接加载的画布。两者之间只有 REST。
 
-`dsh-synapse` is a presentation and organization layer for DeepSeek Harness conversations. It turns existing DSH sessions, turns, and forks into a visual map without replacing the systems that own those conversations.
-
-## Web profile integration
-
-The package contributes `cordis.patch.yml`, which inserts the `dsh-synapse` service into the DSH `web` profile. It reuses the existing DSH Web server and client runtime.
-
-The plugin:
-
-- does not start a second HTTP server;
-- does not create a second model or agent runtime;
-- does not replace DSH authentication or permission checks;
-- does not support non-Web profiles unless those profiles explicitly add the plugin.
-
-## Conversation ownership
-
-DSH session logs remain the source of truth for conversation content and lifecycle. Native DSH operations own:
-
-- creating and opening sessions;
-- sending follow-up messages;
-- forking sessions;
-- archiving sessions;
-- model and tool execution;
-- permission and approval decisions.
-
-Synapse projects committed DSH events into cards and sends user actions back through the native DSH session bridge.
-
-## Canvas metadata
-
-By default, Synapse stores canvas metadata at:
-
-```text
-$DSH_HOME/synapse/workspaces.json
+```
+~/.claude/projects/**/*.jsonl
+        │  只读
+        ▼
+  JsonlReader ──► claude adapter ──► lineage ──► WorkspaceStore
+  (增量读取)      (会话 → 节点)      (分支推断)   (布局持久化)
+                                                    │
+                                                 HTTP API
+                                                    │
+                                                  app.js
 ```
 
-The file contains organizational state such as workspace mapping, card layout, and fork anchors. It does not replace session logs.
+## 模块
 
-Consequences:
+| 文件 | 职责 |
+| --- | --- |
+| `src/jsonl.js` | 增量读取会话文件，只返回上次之后新增的行 |
+| `src/adapters/claude.js` | 把一个会话文件解析成节点序列 |
+| `src/lineage.js` | 在同一个工作区内推断会话的父子关系 |
+| `src/scanner.js` | 串起以上三者，输出可直接灌进画布的会话列表 |
+| `src/store.js` | 画布布局的持久化（沿用上游的锁与原子写） |
+| `src/server.js` | HTTP 路由与三层访问防护 |
+| `src/watcher.js` | 监听会话目录，有变化就重扫 |
+| `src/spawn.js` | 在新终端窗口里打开 Claude Code |
+| `app.js` / `styles.css` | 画布本体，浏览器直接加载，无构建步骤 |
 
-- deleting the file resets canvas organization but does not delete conversations;
-- uninstalling the plugin keeps the file, so reinstalling restores the canvas;
-- older schema versions migrate when loaded;
-- two processes sharing the same file can still produce last-writer-wins replacement despite locking and external-change warnings.
+## 节点粒度
 
-Run one `dsh web` instance for each shared profile.
+**一个节点 = 一次用户输入 + 它引发的完整回合。**
 
-## Projection model
+助手的输出只决定节点的内容，不决定节点的数量。这条规则是被真实数据逼出来的：
 
-With `autoProjection` enabled, committed DSH session events are grouped by working directory and projected into the corresponding Synapse workspace.
+- 一个回合里带文本的助手记录，只有约三成是一条，四成以上是两条或更多，最多的一个回合有 76 条。按记录建节点，单个回合就会炸出几十张卡片。
+- 另有约四分之一的回合一条文本都没有（纯工具执行，比如「跑一下测试」）。跳过这类回合，用户的提问就会从地图上消失。
 
-Each user question becomes a conversation card. The following assistant messages are folded into that turn, and the final assistant reply is shown as the answer. Forked sessions connect to the parent turn at the durable DSH seed boundary rather than at an arbitrary canvas coordinate.
+开启一个节点的条件只有三种：一条非噪音的用户记录、一次 `AskUserQuestion` 的回答、一个上下文压缩边界。之后所有助手文本按序拼接进同一个节点，工具调用和思考过程折进它的过程记录。
 
-Projected card text is capped at 8000 characters. Longer messages receive a truncation marker in the card, while their complete content remains available from the conversation detail view.
+`AskUserQuestion` 单独成节点，是因为它本质就是一次用户输入，只是形式是选项而非自由文本——而且用户常常不选给定选项，直接写下新的要求。
 
-Projection writes are coalesced during event bursts, and live updates reuse cached Markdown and patch the active card instead of rebuilding the complete canvas. Card coordinates remain visual metadata only and never determine conversation lineage.
+## 序号
 
-## Tool process folding
+节点的 `sourceSeq` 是它在文件里的行号。
 
-Live events pair tool calls and results by `callId` and render them inside the related assistant reply instead of as standalone conversation cards.
+这不是随便选的：画布多处用 `Number.isInteger(sourceSeq)` 把关（分支按钮、分叉点比较），卡片 id 也由它拼成，而卡片坐标按 id 存在浏览器里。行号是整数、单调、且对已写入的行永不改变，正好能让上游那套画布逻辑一行不改地继续工作。
 
-Legacy v3 migrations did not always have durable call IDs. Those records pair each tool call with the next tool result by order during migration.
+用 uuid 要改几十处；用「第几条消息」则会在过滤规则变化时整体漂移，把用户摆好的布局全冲掉。
 
-## Browser-local state
+## 分支推断
 
-Some interaction state, such as dragged card positions and branch anchors, may be cached in browser local storage to keep the canvas responsive. Durable workspace metadata is still written through the Synapse service.
+Claude Code 续写一个会话时，会把父会话的历史整个复制进一个新文件，两个文件之间没有任何字段互相引用。所以父子关系只能靠**共享的提问前缀**还原，共享的长度就是分叉发生的位置。
 
-Private-browsing restrictions or local-storage failures must not prevent DSH conversations from operating; they only reduce persistence of visual preferences.
+签名只取用户输入，不含助手回答——同一个问题每次的回答都不同，拿它比对会把本该同源的会话判成无关。
 
-## Host validation
+判断谁是父时用**最后活动时间**，不能用创建时间：历史是复制过去的，新文件首条记录的时间戳是继承来的，同一次分叉出来的几个文件读起来几乎完全相同。这个先后判断同时保证了不对称——否则两个会话会互指对方为父，形成画布无法布局的环。
 
-The `/synapse` endpoint always accepts `localhost` and `127.0.0.1`. Additional LAN or proxy authorities must be listed in `trustedHosts` as a host or `host:port` value.
+推断带一个置信度，低置信度的连线可以画得更弱。用户手动调整过的连线不会被覆盖。
 
-This validation is part of the Web surface and does not replace broader network access controls.
+## 增量
 
-## Model and KV-cache impact
+`JsonlReader` 按 offset 只读新增字节，但它的产物只用来回答「这个文件动过没有」。一旦确认动过，会话就**整份重新解析**——会话是一条累积的对话，只投影新增的几行会把前面的内容全丢掉。省时间靠的是没动过的文件根本不往下走。
 
-Synapse reads session events only after DSH commits them. It does not add or modify:
+半行必须以字节形式暂存。会话内容里中文很多，一个多字节字符若被读取边界劈开，按字符串暂存会在两侧各留一个替换字符，拼接后字符永久损坏——既污染正文，也让同一条消息两次读出不同的签名哈希。
 
-- system prompts;
-- user request content;
-- model request headers;
-- tool schemas or registries;
-- provider routing;
-- approval context.
+## 工作区
 
-As a result, the plugin has no direct model-experience effect and does not invalidate an otherwise reusable KV-cache prefix.
+工作区的键是记录里的 `cwd`，不是目录名。Claude Code 存放会话用的目录名是路径的有损转写，不同项目会撞成同一个名字。目录名只用来缩小搜索范围，最终归属仍以 `cwd` 为准，并统一盘符大小写。
 
-## Operational limitations
+`cwd` 在单个文件里会变（子代理、工具切目录），所以取第一条带 `cwd` 的记录。
 
-- Only the `web` profile is supported by the bundled patch.
-- Canvas metadata and session content have different owners and backup requirements.
-- A single shared metadata file is not a multi-writer database.
-- Browser state can be cleared independently from DSH Home data.
-- Historical migrations may have less precise tool-call pairing than live projection.
+## 访问防护
 
-## Related documentation
+三层，比上游多一层，因为这个版本能启动进程：
 
-- [Chinese user guide](zh-CN/README.md)
-- [English user guide](en/README.md)
-- [Development and release guide](development.md)
-- [Project overview](../README.md)
+1. 只监听回环地址；
+2. 校验 `Host` 头，挡住指向本机的 DNS 重绑定；
+3. 非 GET 请求必须同源（`Sec-Fetch-Site`，退回 `Origin`），否则别的网页可以借浏览器启动 Claude。
+
+唤起会话时，工作目录只从已扫描到的会话里取，绝不接受请求体传入——接受调用方给的路径，这个接口就成了任意目录执行。参数一律以数组传给终端，中间不经过 shell。
+
+## 持久化
+
+`~/.cc-synapse/workspaces.json` 里只有两样东西是用户的：卡片坐标和归档列表。会话内容每次扫描都从 JSONL 重建，因为那是只读的源，重建总是对的。
+
+重建时会沿用既有的工作区和节点 id：id 一变，前端手里的引用就全失效，每次刷新都会丢掉选中和展开状态。

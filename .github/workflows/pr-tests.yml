@@ -19,8 +19,13 @@ concurrency:
 
 jobs:
   test:
-    name: Full test suite
-    runs-on: ubuntu-latest
+    # 路径归一化和唤起终端的逻辑都是平台相关的，必须在真的 Windows 上跑一遍。
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Check out repository

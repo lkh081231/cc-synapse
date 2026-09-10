@@ -1,137 +1,55 @@
-# Development and release guide
+# 开发与发布
 
-This document covers local validation, package inspection, GitHub Actions, and npm release automation for maintainers.
+## 环境
 
-## Requirements
-
-- Node.js `>= 22.19.0`
-- pnpm through Corepack
-- A checkout of this repository
-
-## Local workflow
-
-Install with the lockfile:
+Node.js `>= 22.19.0`，pnpm 10。项目零依赖、零构建——`app.js` 由浏览器直接加载，服务端是原生 ES module。
 
 ```powershell
-corepack pnpm install --frozen-lockfile
+corepack pnpm install
 ```
 
-Validate JavaScript syntax:
+## 本地运行
 
 ```powershell
-corepack pnpm run build
+node bin/cc-synapse.js --all --dev
 ```
 
-Run the full test suite:
+`--dev` 让前端文件每次请求都重新读取，改完刷新即可，不用重启。常用的还有 `--port` 固定端口和 `--no-open` 不自动开浏览器。
+
+想用别处的会话数据（比如测试夹具）：
 
 ```powershell
-corepack pnpm test
+node bin/cc-synapse.js --claude-dir test/fixtures/claude --all
 ```
 
-Inspect the package archive:
+## 测试
 
 ```powershell
-corepack pnpm pack
-npm pack --dry-run --json
+corepack pnpm test     # node --test，无第三方框架
+corepack pnpm build    # 只做语法检查，不产出文件
 ```
 
-The package has no generated build output. `build` runs `node --check` over `index.js`, `client.js`, and `app.js`.
+夹具在 `test/fixtures/claude/`，都是手写的十几行 JSONL，覆盖节点粒度、噪音过滤、上下文压缩、目录名冲突等场景。**不要拿真实的 `~/.claude` 当夹具**——里面有隐私内容，体积也不适合进仓库。
 
-## GitHub Actions
+几处测试的写法值得留意：
 
-Three workflows live under `.github/workflows/`.
+- `conversation-cards.test.js` 和 `canvas-runtime.test.js` 用 `node:vm` 按函数名切出 `app.js` 的片段来跑。切片锚点是 `function overlapsCard` 和 `function canvasConnectors`，重命名这两个函数会让测试失效。
+- `canvas-runtime.test.js` 有几条是对源码文本做正则断言的。它们守的是修过的真实缺陷（相机不重置、滚动位置保持），但改动对应代码时需要同步更新——这是明知的脆弱，范围已压到最小。
+- `canvas-contract.test.js` 守的是 adapter 产物与画布之间的接缝，改 adapter 时最先看它。
 
-### Pull request tests
+## 发布
 
-`pr-tests.yml` runs for pull requests targeting `main` when they are opened, reopened, updated, or marked ready for review.
-
-The workflow:
-
-1. Checks out the pull request revision.
-2. Installs pnpm 10 and Node.js 22.19.0.
-3. Runs `pnpm install --frozen-lockfile`.
-4. Runs `pnpm run build`.
-5. Runs `pnpm test`.
-
-A per-PR concurrency group cancels obsolete runs after a newer commit arrives.
-
-### Main branch tests
-
-`main-tests.yml` runs for every push to `main`, including direct commits and merged pull requests. It executes the same frozen installation, build validation, and full test suite.
-
-### npm publishing
-
-`npm-publish.yml` runs for pushed tags matching the broad GitHub pattern `v*.*.*`. The job then validates the tag strictly before publishing.
-
-Accepted forms include:
-
-```text
-v0.4.0
-v0.4.0-rc1
-v0.4.0-rc.2
-```
-
-The tag without the leading `v` must exactly equal `package.json.version`. A mismatch fails before installation or publication.
-
-| Version | Git tag | npm dist-tag |
-|---|---|---|
-| `0.4.0-rc1` | `v0.4.0-rc1` | `next` |
-| `0.4.0` | `v0.4.0` | `latest` |
-
-Every release tag reruns installation, build validation, and the complete test suite before calling `pnpm publish`.
-
-## Configure npm authentication
-
-Create a GitHub Actions repository secret named `NPM_TOKEN` in the repository where the tag workflow will run:
+版本号与 tag 必须一致，CI 会校验。
 
 ```powershell
-gh secret set NPM_TOKEN --repo OWNER/dsh-synapse
+corepack pnpm version patch
+git push --follow-tags
 ```
 
-The token's npm account must have permission to create or publish the public, unscoped `dsh-synapse` package. The workflow passes the secret to the publish step as `NODE_AUTH_TOKEN`; pull request and ordinary test workflows never receive it.
+推送 `v*.*.*` 形式的 tag 会触发 `npm-publish.yml`：校验 tag 与 `package.json` 版本一致 → 安装 → 语法检查 → 测试 → 发布。带 `-` 的版本走 `next` 通道，其余走 `latest`。已发布过的版本会跳过而不是报错。
 
-## Release checklist
-
-1. Confirm the full test suite passes on `main`.
-2. Update `package.json.version` to the intended release version.
-3. Commit and merge the version change.
-4. Create a matching tag on that commit.
-5. Push the tag.
-6. Confirm the **Publish to npm** workflow passes.
-7. Verify the npm dist-tag:
-   - prerelease versions use `next`
-   - stable versions use `latest`
-
-Example stable release:
+首次发布前需要配置令牌：
 
 ```powershell
-# package.json already contains 0.4.0
-git tag v0.4.0
-git push origin v0.4.0
+gh secret set NPM_TOKEN --repo lkh081231/cc-synapse
 ```
-
-Example prerelease:
-
-```powershell
-# package.json already contains 0.4.0-rc1
-git tag v0.4.0-rc1
-git push origin v0.4.0-rc1
-```
-
-## Publication failure conditions
-
-The publish job stops without publishing when:
-
-- the tag is not a supported version form;
-- the tag and `package.json.version` differ;
-- frozen installation fails;
-- syntax validation or tests fail;
-- `NPM_TOKEN` is missing, expired, or lacks package permissions;
-- npm rejects the package name or an already-published version.
-
-## Documentation
-
-- [Chinese user guide](zh-CN/README.md)
-- [English user guide](en/README.md)
-- [Architecture and runtime boundaries](architecture.md)
-- [Project overview](../README.md)

@@ -1,154 +1,79 @@
-# dsh-synapse 中文指南
+# cc-synapse 中文指南
 
-`dsh-synapse` 是 DeepSeek Harness（DSH）的 Web 插件。它在 DSH 原生对话界面上增加会话地图，把同一工作区中的会话、追问和分支组织成可浏览、可拖拽和可缩放的画布。
+把 Claude Code 的历史会话摊开成一张地图。它只读取 `~/.claude`，从不写回任何会话文件。
 
-插件不替代 DSH 的模型、工具、会话、权限或 Web 服务；所有对话操作仍由 DSH 完成。
+## 安装与启动
 
-## 前提条件
-
-- 支持 `dsh plugin` profile 插件机制的 DeepSeek Harness（2026-08 或之后版本）。
-- Node.js `>= 22.19.0`。
-- 使用 `web` profile；其他 profile 暂不支持。
-
-## 安装
-
-### 从 npm 安装
+需要 Node.js `>= 22.19.0`。在项目目录下：
 
 ```powershell
-corepack pnpm dsh plugin --profile web add dsh-synapse
+npx cc-synapse
 ```
 
-npm 包分发的是预构建产物，无需任何构建授权——最简单的安装方式。下方 GitHub 与本地 checkout 为备选。
+浏览器会自动打开，显示当前目录的会话。加 `--all` 可以一次看到所有项目。
 
-### 从 GitHub 安装
+也可以装成全局命令：
 
 ```powershell
-corepack pnpm dsh plugin --profile web add github:liangmianya/dsh-synapse
+npm install -g cc-synapse
+cc-synapse
 ```
 
-GitHub 安装会运行本包的 `prepare` 脚本，通过 `node --check` 验证 JavaScript 语法。
+## 界面
 
-### pnpm 10+ 的 allowBuilds
+**侧边栏**列出当前工作区的会话，标了「分支」的是从别的会话续写出来的。切换顶部的下拉框可以换工作区。
 
-pnpm 10 及之后版本默认可能阻止 Git 依赖执行构建脚本。如果安装被拦截，请将 pnpm 输出的**完整键**复制到 DSH Web profile 的 `pnpm-workspace.yaml`：
+**画布**上每张卡片是一次提问和它的回答。卡片右下角的数字是这一轮里的工具调用次数，点「详情」能看到完整的过程记录，包括思考内容和每次工具调用的参数与结果。
 
-```yaml
-allowBuilds:
-  "dsh-synapse@https://codeload.github.com/liangmianya/dsh-synapse/tar.gz/<commit>": true
+**连线**表示分支关系：一个会话如果是从另一个会话续写出来的，它会接在分叉的那一问旁边。
+
+## 操作
+
+| 动作 | 说明 |
+| --- | --- |
+| 拖拽卡片 | 调整位置，会被记住 |
+| 滚轮 | 在画布上缩放；在卡片内滚动答案 |
+| 折叠 | 卡片上的减号收起它之后的所有对话 |
+| 整理 | 重新排布所有卡片 |
+| 定位 | 回到当前会话 |
+| 详情 | 打开完整的对话记录 |
+| Claude | 开一个新终端窗口，`--resume` 到这个会话 |
+| 归档 | 把会话从地图上隐藏（磁盘文件不动） |
+| 重新扫描 | 立即重读 `~/.claude` |
+
+正常情况下不需要手动扫描——你在终端里发消息，地图一两秒内就会更新。
+
+## 命令行选项
+
+```
+--port <n>          监听端口（默认自动选择）
+--host <h>          监听地址（默认 127.0.0.1）
+--cwd <path>        要查看的项目目录（默认当前目录）
+--all               显示全部项目
+--claude-dir <p>    Claude Code 的数据目录（默认 ~/.claude）
+--data-file <p>     画布布局的存放位置
+--claude-bin <p>    claude 可执行文件路径
+--no-open           不自动打开浏览器
+--no-spawn          禁用「在 Claude 中打开」
+--dev               每次请求都重新读取前端文件
 ```
 
-必须使用包含 tarball URL 和 commit 的完整键，不能只填写裸包名 `dsh-synapse`。上游 commit 变化后，键也会变化；届时使用 pnpm 新输出的值。
+## 数据与安全
 
-### 本地开发安装
+画布唯一写入的文件是布局本身，默认在 `~/.cc-synapse/workspaces.json`，里面只有卡片坐标和归档列表。删掉它只会丢失布局，会话内容会在下次启动时重新读出来。
 
-```powershell
-corepack pnpm dsh plugin --profile web add link:E:\path\to\dsh-synapse
-```
-
-`link:` 会直接引用本地 checkout，适合开发和调试。普通运行模式下修改代码后，建议重启 `dsh web` 并刷新页面。
-
-## 启动
-
-```powershell
-corepack pnpm dsh web
-```
-
-默认地址：
-
-```text
-http://127.0.0.1:3080/
-```
-
-如果 3080 被占用，可以让 DSH 自动选择端口：
-
-```powershell
-corepack pnpm dsh web --port 0
-```
-
-启动后点击顶部“会话地图”进入 Synapse。不要同时运行两个共享同一 profile 的 `dsh web` 实例。
-
-## 使用方式
-
-1. 在 DSH 中选择工作目录，或打开已有会话。
-2. 发送至少一条消息，使会话进入工作区历史。
-3. 点击顶部“会话地图”。
-4. 点击卡片或侧边栏会话，在地图与原生对话之间同步当前会话。
-5. 使用“分支”从已完成的回答创建替代路径。
-6. 点击卡片底部“详情”查看完整会话记录。
-7. 使用“打开 DSH”或顶部“对话”返回原生对话界面。
-
-画布支持：
-
-- 拖动画布和缩放视图（最高 4×）。
-- 拖动卡片并自动保存位置。
-- 展开或折叠后续对话子树。
-- 一键定位当前会话。
-- 卡片内部平滑滚动和 Markdown 表格渲染。
-- 将工具调用和结果按 `callId` 折叠到对应助手回答中。
-
-## 配置
-
-插件通过 profile 的 `cordis.patch.yml` 注入。可以在自己的 patch 中通过行 id `synapse` 覆盖配置。
-
-> DSH patch 会整体替换该行的 `config`，覆盖时需要重述所有需要保留的键。
-
-| 键 | 默认值 | 说明 |
-|---|---|---|
-| `dataFile` | `$DSH_HOME/synapse/workspaces.json` | 画布元数据持久化文件 |
-| `autoProjection` | `true` | 自动将已提交的 DSH 会话事件投影为卡片 |
-| `projectionWorkspaceTitle` | `DSH 任务` | 自动投影工作区的标题 |
-| `trustedHosts` | `[]` | `/synapse` Host 检查额外允许的主机名或 `主机:端口`；`localhost` 和 `127.0.0.1` 始终允许 |
-
-配置示例：
-
-```yaml
-- id: synapse
-  config:
-    dataFile: !!js dshHomePath('synapse/my-workspaces.json')
-    autoProjection: true
-    projectionWorkspaceTitle: 我的任务
-    trustedHosts: []
-```
-
-局域网访问时，需要将实际访问主机加入 `trustedHosts`。
-
-## 卸载与数据清理
-
-卸载插件：
-
-```powershell
-corepack pnpm dsh plugin --profile web remove dsh-synapse
-```
-
-`remove` 只移除插件依赖和 profile 激活层，不会删除画布数据。重新安装后，旧数据会继续使用并按需迁移。
-
-彻底清理时，手动删除：
-
-```text
-$DSH_HOME/synapse/
-```
-
-`pnpm-workspace.yaml` 中遗留的 `allowBuilds` 键没有副作用，也可以一并移除。
-
-## 数据与运行边界
-
-- DSH session log 保存真实对话内容。
-- Synapse 的 `workspaces.json` 只保存画布元数据、布局和分支锚点。
-- 删除 `workspaces.json` 会丢失画布布局，但不会删除 DSH 会话。
-- 单条消息投影上限为 8000 字符；超出部分在卡片中截断并标注“—…（详情查看全文）”，完整内容仍可在会话详情中查看。
-- 插件不启动第二个 Web 服务，也不创建第二套 Agent。
-- 插件只读取已经提交的会话事件，不修改模型请求、系统提示、工具 schema 或 KV cache 前缀。
-
-更详细的内部说明见[架构与运行边界](../architecture.md)。
+服务只监听 `127.0.0.1`，校验 `Host` 头，并要求写操作同源。「在 Claude 中打开」的工作目录只从已扫描到的会话里取，不接受外部传入。不需要这个功能时可以用 `--no-spawn` 完全关闭。
 
 ## 已知限制
 
-- 仅支持 `web` profile。
-- 两个 DSH Web 实例共享同一个 profile 时会写入同一个 `workspaces.json`。虽然存在跨进程写锁和外部修改警告，仍可能出现最后写入覆盖，请只运行一个实例。
-- v3 数据迁移时，旧工具卡片按顺序将每次调用与下一条结果配对；实时事件使用 `callId`。
+- **分支关系是推断的。** 会话文件里没有记录 fork，只能靠共享的提问前缀还原，偶尔会接错位置。
+- **子代理不单独成图。** `Task` 派生的子会话存在单独的文件里，目前只作为工具调用出现在所属卡片中。
+- **不能在画布里发消息。** 这一版是只读的，继续对话请回到终端。
 
-## 开发与发布
+## 卸载
 
-贡献者命令、GitHub Actions 和 npm 发布流程见[开发与发布指南](../development.md)。
+```powershell
+npm uninstall -g cc-synapse
+```
 
-返回[项目主页](../../README.md)。
+布局文件需要手动删除：`~/.cc-synapse/`。

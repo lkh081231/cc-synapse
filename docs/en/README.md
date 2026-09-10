@@ -1,161 +1,79 @@
-# dsh-synapse English Guide
+# cc-synapse — English guide
 
-`dsh-synapse` is a Web plugin for DeepSeek Harness (DSH). It adds a session map to the native conversation interface and organizes sessions, follow-ups, and forks from the same workspace as a browsable, draggable, and zoomable canvas.
+Lays your Claude Code history out as a map. It only reads `~/.claude` and never writes back to a session file.
 
-The plugin does not replace DSH models, tools, sessions, permissions, or the Web server. DSH remains responsible for every conversation operation.
+## Install and run
 
-## Prerequisites
-
-- A DeepSeek Harness release with the `dsh plugin` profile mechanism (2026-08 or later).
-- Node.js `>= 22.19.0`.
-- The `web` profile; other profiles are not currently supported.
-
-## Installation
-
-### Install from npm
+Requires Node.js `>= 22.19.0`. From any project directory:
 
 ```powershell
-corepack pnpm dsh plugin --profile web add dsh-synapse
+npx cc-synapse
 ```
 
-The npm package ships prebuilt code, so no build-script permission is needed — the simplest install. GitHub and local-checkout routes below are alternatives.
+A browser opens on the sessions for that directory. Add `--all` to see every project at once.
 
-### Install from GitHub
+Or install it globally:
 
 ```powershell
-corepack pnpm dsh plugin --profile web add github:liangmianya/dsh-synapse
+npm install -g cc-synapse
+cc-synapse
 ```
 
-GitHub installs run the package `prepare` script, which validates JavaScript syntax with `node --check`.
+## The interface
 
-### pnpm 10+ allowBuilds
+**The sidebar** lists the sessions in the current workspace. Ones marked 分支 continue from another session. The dropdown above switches workspaces.
 
-pnpm 10 and later may block build scripts for Git dependencies by default. If installation is blocked, copy the **complete key printed by pnpm** into the DSH Web profile's `pnpm-workspace.yaml`:
+**The canvas** gives each question and its answer one card. The number in the corner counts the tool calls in that turn; 详情 opens the full record, including reasoning and every tool call's arguments and result.
 
-```yaml
-allowBuilds:
-  "dsh-synapse@https://codeload.github.com/liangmianya/dsh-synapse/tar.gz/<commit>": true
+**Connectors** show lineage: a session continued from another one attaches beside the question it branched at.
+
+## What you can do
+
+| Action | Result |
+| --- | --- |
+| Drag a card | Moves it; the position is remembered |
+| Wheel | Zooms the canvas, or scrolls an answer when over a card |
+| Collapse | The minus on a card hides everything after it |
+| 整理 | Re-lays out every card |
+| 定位 | Returns to the current session |
+| 详情 | Opens the full transcript |
+| Claude | Opens a terminal window and `--resume`s that session |
+| 归档 | Hides a session from the map; the file on disk is untouched |
+| 重新扫描 | Re-reads `~/.claude` immediately |
+
+You rarely need to rescan by hand — a message you send in the terminal shows up within a second or two.
+
+## Options
+
+```
+--port <n>          Port to listen on (chosen automatically by default)
+--host <h>          Address to bind (default 127.0.0.1)
+--cwd <path>        Project directory to show (default: current directory)
+--all               Show every project
+--claude-dir <p>    Claude Code's data directory (default ~/.claude)
+--data-file <p>     Where to keep the canvas layout
+--claude-bin <p>    Path to the claude executable
+--no-open           Do not open a browser
+--no-spawn          Disable opening sessions in Claude
+--dev               Re-read front-end files on every request
 ```
 
-Use the complete key containing the tarball URL and commit, not the bare package name `dsh-synapse`. The key changes when the upstream commit changes, so use the newly printed value when upgrading.
+## Data and safety
 
-### Install a local checkout
+The only file the canvas writes is its own layout, by default `~/.cc-synapse/workspaces.json`, holding card positions and the archived list. Deleting it loses the layout and nothing else; session content is read again on the next start.
+
+The server binds `127.0.0.1`, checks the `Host` header, and requires writes to be same-origin. The working directory for "open in Claude" comes only from an already-scanned session, never from the request. Use `--no-spawn` to turn that route off entirely.
+
+## Known limits
+
+- **Lineage is inferred.** Session files record no fork, so parentage is recovered from the shared prefix of questions and can occasionally attach at the wrong point.
+- **Subagents are not mapped.** Sessions spawned by `Task` live in separate files and currently appear only as tool calls on the card that started them.
+- **The canvas is read-only.** Continue a conversation in the terminal.
+
+## Uninstall
 
 ```powershell
-corepack pnpm dsh plugin --profile web add link:E:\path\to\dsh-synapse
+npm uninstall -g cc-synapse
 ```
 
-The `link:` form references the local checkout directly and is recommended for development. In a normal run, restart `dsh web` and refresh the page after editing the plugin.
-
-## Start DSH Web
-
-```powershell
-corepack pnpm dsh web
-```
-
-Default address:
-
-```text
-http://127.0.0.1:3080/
-```
-
-Let DSH choose a free port when 3080 is occupied:
-
-```powershell
-corepack pnpm dsh web --port 0
-```
-
-Open the top **Session Map** switch after startup. Do not run two `dsh web` processes that share the same profile.
-
-## Usage
-
-1. Select a working directory in DSH or open an existing session.
-2. Send at least one message so the session enters workspace history.
-3. Open **Session Map** from the top switch.
-4. Click a card or sidebar session to synchronize the current session between the map and native chat.
-5. Use **Branch** on a completed answer to preserve an alternative path.
-6. Open **Details** from a card to inspect the complete conversation.
-7. Use **Open in DSH** or the top **Dialogue** switch to return to native chat.
-
-The canvas supports:
-
-- Panning and zooming up to 4×.
-- Dragging cards with persisted positions.
-- Expanding or collapsing descendant conversation subtrees.
-- One-click focus on the current session.
-- Smooth card scrolling and Markdown table rendering.
-- Folding tool calls and results into the related assistant answer by `callId`.
-
-## Configuration
-
-The plugin is inserted through the profile's `cordis.patch.yml`. Override it in your own patch by targeting the row id `synapse`.
-
-> A DSH patch replaces the row's complete `config`, so restate every value that must remain active.
-
-| Key | Default | Description |
-|---|---|---|
-| `dataFile` | `$DSH_HOME/synapse/workspaces.json` | Canvas metadata persistence file |
-| `autoProjection` | `true` | Automatically project committed DSH session events into cards |
-| `projectionWorkspaceTitle` | `DSH 任务` | Title of the automatically projected workspace |
-| `trustedHosts` | `[]` | Extra host or `host:port` values accepted by the `/synapse` Host check; `localhost` and `127.0.0.1` are always accepted |
-
-Example:
-
-```yaml
-- id: synapse
-  config:
-    dataFile: !!js dshHomePath('synapse/my-workspaces.json')
-    autoProjection: true
-    projectionWorkspaceTitle: My tasks
-    trustedHosts: []
-```
-
-Add the actual host to `trustedHosts` when exposing DSH on a LAN.
-
-## Uninstall and data cleanup
-
-Remove the plugin:
-
-```powershell
-corepack pnpm dsh plugin --profile web remove dsh-synapse
-```
-
-`remove` deletes the dependency and profile activation layer but keeps canvas data. Reinstalling reuses and migrates the old data when necessary.
-
-For a complete cleanup, manually remove:
-
-```text
-$DSH_HOME/synapse/
-```
-
-A leftover `allowBuilds` key in `pnpm-workspace.yaml` is harmless and may also be removed.
-
-## Data and runtime boundaries
-
-- DSH session logs own the actual conversation content.
-- Synapse `workspaces.json` stores only canvas metadata, layout, and branch anchors.
-- Deleting `workspaces.json` loses canvas layout, never DSH sessions.
-- Projected message text is capped at 8000 characters; longer card text ends with “—…（详情查看全文）”, while the full content remains available in conversation details.
-- The plugin starts no second Web server and creates no second agent system.
-
-See [Architecture and runtime boundaries](../architecture.md) for details.
-
-## Model Experience
-
-None, as dsh-synapse only reads committed session events and renders them; it adds no system-prompt prose, tool schemas, or request-context content to any model request.
-
-### KV Cache effect
-
-Does not invalidate. The plugin never changes request headers, system prompts, or tool registries, so an already-reusable KV prefix stays reusable; canvas projection consumes session logs only after they are committed.
-
-## Known limitations
-
-- Only the `web` profile is supported.
-- Two DSH Web instances sharing one profile write the same `workspaces.json`. A cross-process write lock and external-modification warnings exist, but last-writer-wins replacement remains possible; run one instance.
-- During v3 migration, legacy tool cards pair each call with the next result by order. Live events pair by `callId`.
-
-## Development and releases
-
-Contributor commands, GitHub Actions, and npm publishing are documented in the [Development and release guide](../development.md).
-
-Return to the [project overview](../../README.md).
+Remove `~/.cc-synapse/` by hand if you want the layout gone too.
