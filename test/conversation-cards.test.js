@@ -74,8 +74,8 @@ test('connects a restored fork to its DSH seed boundary, not its canvas position
     },
   ])
 
-  const parentTurns = cards.filter(card => card.dshThreadId === 'parent')
-  const childTurn = cards.find(card => card.dshThreadId === 'child')
+  const parentTurns = cards.filter(card => card.ccThreadId === 'parent')
+  const childTurn = cards.find(card => card.ccThreadId === 'child')
   assert.equal(childTurn.parentId, parentTurns[1].id)
 })
 
@@ -100,8 +100,8 @@ test('uses a restored child message sequence to reconnect a legacy fork at its u
     },
   ])
 
-  const parentTurns = cards.filter(card => card.dshThreadId === 'parent')
-  const childTurn = cards.find(card => card.dshThreadId === 'child')
+  const parentTurns = cards.filter(card => card.ccThreadId === 'parent')
+  const childTurn = cards.find(card => card.ccThreadId === 'child')
   assert.equal(childTurn.parentId, parentTurns[1].id)
 })
 
@@ -128,8 +128,8 @@ test('places a fork beside the exact parent turn while avoiding overlap', async 
     },
   ])
 
-  const parentTurns = cards.filter(card => card.dshThreadId === 'parent')
-  const childTurn = cards.find(card => card.dshThreadId === 'child')
+  const parentTurns = cards.filter(card => card.ccThreadId === 'parent')
+  const childTurn = cards.find(card => card.ccThreadId === 'child')
   assert.equal(childTurn.parentId, parentTurns[1].id)
   assert.equal(childTurn.position.x, parentTurns[1].position.x + 365)
   assert.ok(childTurn.position.y > parentTurns[1].position.y)
@@ -160,7 +160,7 @@ test('keeps every turn of one branch on the same horizontal lane', async () => {
     },
   ])
 
-  const childTurns = cards.filter(card => card.dshThreadId === 'child')
+  const childTurns = cards.filter(card => card.ccThreadId === 'child')
   assert.equal(new Set(childTurns.map(card => card.position.y)).size, 1)
   assert.equal(childTurns[1].position.x, childTurns[0].position.x + 365)
   assert.equal(childTurns[2].position.x, childTurns[1].position.x + 365)
@@ -287,7 +287,7 @@ test('collapsing a fork point hides all branch descendants without hiding anothe
     },
     { id: 'other-root', parentId: null, messages: [{ kind: 'user', text: '独立会话', sourceSeq: 1 }] },
   ])
-  const forkPoint = cards.find(card => card.dshThreadId === 'parent' && card.turnIndex === 0)
+  const forkPoint = cards.find(card => card.ccThreadId === 'parent' && card.turnIndex === 0)
   const graph = conversationGraphView(cards, new Set([forkPoint.id]))
 
   assert.deepEqual(Array.from(graph.cards, card => card.question).sort(), ['父问题', '独立会话'].sort())
@@ -362,8 +362,8 @@ test('nested collapsed nodes remain visible when their ancestor is expanded', as
 test('cyclic collapsed roots stay visible and count unique descendants', async () => {
   const { conversationGraphView } = await loadConversationCards()
   const cards = [
-    { id: 'a', parentId: 'b', dshThreadId: 'a' },
-    { id: 'b', parentId: 'a', dshThreadId: 'b' },
+    { id: 'a', parentId: 'b', ccThreadId: 'a' },
+    { id: 'b', parentId: 'a', ccThreadId: 'b' },
   ]
   const graph = conversationGraphView(cards, new Set(['a', 'b']))
 

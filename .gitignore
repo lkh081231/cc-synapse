@@ -1,3 +1,6 @@
 node_modules/
 *.tgz
 .pack-check/
+# 浏览器验证时的临时产物
+.playwright-mcp/
+/canvas-*.png

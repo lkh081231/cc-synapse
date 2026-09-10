@@ -13,9 +13,8 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .brand, .top-actions, .view-switch, .thread-card-head, .thread-meta, .detail-actions, .compare-title { display: flex; align-items: center; }
 .sidebar-brand-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 60px; flex: none; margin-bottom: 8px; padding: 8px 0 8px 4px; overflow: hidden; }
 .brand { gap: 8px; min-width: 0; flex: 1; }
-.brand::before { width: 31px; height: 26px; flex: none; content: ''; background: center / contain no-repeat url('/synapse/deepseek-mark.svg'); }
-.brand::after { content: '非线性工作台'; flex: none; border-radius: 3px; background: #111827; padding: 2px 5px; color: #fff; font-size: 10px; font-weight: 400; line-height: 1; white-space: nowrap; }
-.brand-mark { display: none; }
+.brand::after { content: '只读'; flex: none; border-radius: 3px; background: #111827; padding: 2px 5px; color: #fff; font-size: 10px; font-weight: 400; line-height: 1; white-space: nowrap; }
+.brand-mark { flex: none; width: 24px; height: 24px; stroke: #2563eb; stroke-width: 2; fill: none; }
 .brand strong { font-size: 20px; font-weight: 600; letter-spacing: 0; }
 .sidebar-toggle { display: inline-grid; width: 28px; height: 28px; min-height: 28px; flex: none; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: #6b7280; }
 .sidebar-toggle:hover { border: 0; background: #eef0f2; color: #374151; }

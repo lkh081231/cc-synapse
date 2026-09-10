@@ -10,19 +10,6 @@ test('uses one camera transform without browser scroll coordinates', async () =>
   assert.doesNotMatch(source, /canvasScroll|canvasPadding|canvasDomShift|canvasMetrics|viewport\.scrollLeft|viewport\.scrollTop/)
 })
 
-test('keeps the canvas viewport across dialog/map toggles and recenters on real session switches', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const mapOpened = source.slice(source.indexOf("if (data.type === 'synapse:map-opened')"), source.indexOf("if (data.type === 'synapse:workspaces')"))
-  const currentSession = source.slice(source.indexOf("if (data.type === 'synapse:current-session')"), source.indexOf("if (data.type === 'synapse:live-reply'"))
-
-  // Reopening the map for the same session must NOT reset the camera: only a
-  // real session switch (current-session id change) re-centers the canvas.
-  assert.doesNotMatch(mapOpened, /resetCanvasCamera\(\)/)
-  assert.match(mapOpened, /state\.mode = 'canvas'\s+render\(\)/)
-  assert.match(currentSession, /previousId !== data\.session\?\.id/)
-  assert.match(currentSession, /focusActiveCard\(\)/)
-})
-
 test('lets the card answer scroll with the native wheel instead of adding deltaY', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const wheel = source.slice(source.indexOf("app.addEventListener('wheel'"), source.indexOf("app.addEventListener('click'"))
@@ -41,31 +28,6 @@ test('preserves each card answer scroll across canvas re-renders', async () => {
   assert.match(render, /\.thread-answer`\)\s*if \(answer instanceof HTMLElement\) answer\.scrollTop = scrollTop/)
 })
 
-test('selecting a session in the sidebar syncs the DSH current session', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const selectThread = source.slice(source.indexOf("button.dataset.action === 'select-thread'"), source.indexOf("button.dataset.action === 'show-thread'"))
-
-  assert.match(selectThread, /synapse:activate-session/)
-})
-
-test('clicking a session card syncs the DSH current session', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const cardClick = source.slice(source.indexOf('if (!(button instanceof HTMLElement)) {'), source.indexOf("if (button.dataset.action === 'close')"))
-
-  assert.match(cardClick, /post\('synapse:activate-session', \{ sessionId: thread\.dshSessionId \}\)/)
-})
-
-test('switching sessions from a map card keeps the current camera position', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const cardClick = source.slice(source.indexOf('if (!(button instanceof HTMLElement)) {'), source.indexOf("if (button.dataset.action === 'close')"))
-  const currentSession = source.slice(source.indexOf("if (data.type === 'synapse:current-session')"), source.indexOf("if (data.type === 'synapse:live-reply'"))
-
-  assert.match(cardClick, /mapCardSessionSwitches\.add\(thread\.dshSessionId\)/)
-  assert.match(currentSession, /mapCardSessionSwitches\.delete\(data\.session\?\.id\)/)
-  assert.match(currentSession, /openCurrentWorkspace\(\{ preserveCanvasCamera \}\)/)
-  assert.match(currentSession, /if \(!preserveCanvasCamera\) focusActiveCard\(\)/)
-})
-
 test('keeps conversation highlighting separate from the exact selected card', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
@@ -76,8 +38,8 @@ test('keeps conversation highlighting separate from the exact selected card', as
 
   assert.match(source, /selectedCardId: null/)
   assert.match(card, /card\.id === state\.selectedCardId/)
-  assert.doesNotMatch(card, /dshThreadId === state\.activeId/)
-  assert.match(connectors, /card\.dshThreadId === state\.activeId && parent\.dshThreadId === state\.activeId/)
+  assert.doesNotMatch(card, /ccThreadId === state\.activeId/)
+  assert.match(connectors, /card\.ccThreadId === state\.activeId && parent\.ccThreadId === state\.activeId/)
   assert.match(connectors, /active-connector/)
   assert.match(cardClick, /state\.selectedCardId = cardId/)
   assert.match(selectThread, /state\.selectedCardId = null/)
@@ -119,14 +81,6 @@ test('opens the clicked card in a tool-aware detail inspector', async () => {
   assert.match(styles, /\.thread-meta \.card-process-count/)
 })
 
-test('switching the workspace in the map syncs DSH to its first session', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const select = source.slice(source.indexOf("app.addEventListener('change'"), source.indexOf("app.addEventListener('input'"))
-
-  assert.match(select, /choice\.sessionIds\[0\]/)
-  assert.match(select, /post\('synapse:activate-session'/)
-})
-
 test('renders markdown tables and allows higher canvas zoom', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const markdown = source.slice(source.indexOf('function markdownBlock'), source.indexOf('function overlapsCard'))
@@ -153,14 +107,6 @@ test('persists dragged card positions and can focus the current session', async 
   assert.match(source, /localStorage\.setItem\(CARD_POSITIONS_KEY/)
   assert.match(source, /function focusActiveCard\(\)/)
   assert.match(source, /data-action="focus-active"/)
-})
-
-test('switching workspaces syncs DSH to the most recently updated session', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const select = source.slice(source.indexOf("app.addEventListener('change'"), source.indexOf("app.addEventListener('input'"))
-
-  assert.match(select, /updatedAt/)
-  assert.match(select, /post\('synapse:activate-session'/)
 })
 
 test('leaves text selections inside cards intact', async () => {
@@ -281,11 +227,9 @@ test('prevents collapse from hiding drafts or the active conversation and restor
 test('reveals hidden ancestor paths when a conversation becomes current', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const reveal = source.slice(source.indexOf('function revealConversationThread'), source.indexOf('function canvasConnectors'))
-  const current = source.slice(source.indexOf("data.type === 'synapse:current-session'"), source.indexOf("data.type === 'synapse:live-reply'"))
 
   assert.match(reveal, /state\.collapsedCardIds\.delete\(parentId\)/)
   assert.match(reveal, /persistCollapsedCards\(\)/)
-  assert.match(current, /revealConversationThread\(conversationCards\(state\.workspace\.threads\), thread\.id\)/)
 })
 
 test('prunes persisted collapsed state when a conversation is archived', async () => {

@@ -65,6 +65,10 @@ export async function startServer(options = {}) {
     const path = url.pathname
 
     if (path === '/' && req.method === 'GET') return sendHtml(res, page())
+    if (path === '/favicon.svg' && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' })
+      return res.end(FAVICON)
+    }
     if (ASSETS[path] !== undefined && req.method === 'GET') return sendAsset(res, path, assets, dev)
 
     if (path === '/api/state' && req.method === 'GET') {
@@ -200,6 +204,8 @@ function statusOf(error) {
   return 500
 }
 
+const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><g fill="none" stroke="#2563eb" stroke-width="2"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5" fill="#2563eb"/><circle cx="23" cy="10" r="2.5" fill="#2563eb"/><circle cx="16" cy="23" r="2.5" fill="#2563eb"/></g></svg>`
+
 function page() {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Claude 会话地图</title><link rel="stylesheet" href="/styles.css"></head><body><div id="app"></div><script src="/app.js"></script></body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Claude 会话地图</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/styles.css"></head><body><div id="app"></div><script src="/app.js"></script></body></html>`
 }
