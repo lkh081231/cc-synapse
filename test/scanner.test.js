@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
+import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Scanner, slugOf } from '../src/scanner.js'
 
 const claudeDir = fileURLToPath(new URL('./fixtures/claude/', import.meta.url))
@@ -60,4 +63,31 @@ test('carries lineage and canvas-ready messages on each session', async () => {
     assert.ok(session.messages.every(message => Number.isInteger(message.sourceSeq)))
     assert.ok(session.parentId === null || typeof session.parentId === 'string')
   }
+})
+
+test('rebuilds a session in full after it grows', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cc-synapse-scan-'))
+  const projects = join(dir, 'projects', 'c--grow')
+  await mkdir(projects, { recursive: true })
+  const file = join(projects, 'aaaaaaaa-0000-4000-8000-000000000001.jsonl')
+
+  const record = (type, text, index) => JSON.stringify({
+    type,
+    cwd: String.raw`C:\grow`,
+    uuid: `u${index}`,
+    parentUuid: null,
+    timestamp: new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString(),
+    message: { role: type, content: [{ type: 'text', text }] },
+  }) + '\n'
+
+  await writeFile(file, record('user', '第一问', 1) + record('assistant', '第一答', 2), 'utf8')
+  const scanner = new Scanner({ claudeDir: dir, all: true })
+  assert.equal((await scanner.scan())[0].messages.length, 2)
+
+  await appendFile(file, record('user', '第二问', 3) + record('assistant', '第二答', 4), 'utf8')
+  const [session] = await scanner.scan()
+
+  // 会话是一条累积的对话：只投影新增的几行会把前面的内容全丢掉。
+  assert.equal(session.messages.length, 4)
+  assert.deepEqual(session.messages.map(message => message.text), ['第一问', '第一答', '第二问', '第二答'])
 })

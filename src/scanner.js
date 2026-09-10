@@ -32,12 +32,18 @@ export class Scanner {
           if (owner !== null && owner.toLowerCase() !== this.cwd.toLowerCase()) continue
         }
         seen.add(file)
-        const cached = this.sessions.get(file)
-        // 文件没动过时 parseSession 会读到空记录并返回 null，
-        // 这时沿用上一次的解析结果，不必重扫整个文件。
-        const parsed = await parseSession(file, this.reader).catch(() => null)
-        if (parsed === null && cached !== undefined) continue
-        if (parsed === null) continue
+        // 先用共享的读取器问一句「动过没有」：没动就沿用上次的解析结果，
+        // 这是重复扫描几乎不花时间的原因。
+        const { unchanged } = await this.reader.read(file).catch(() => ({ unchanged: false }))
+        if (unchanged && this.sessions.has(file)) continue
+
+        // 动过就整份重新解析。会话是一条累积的对话，只把新增的几行投影出来
+        // 会丢掉前面所有内容——增量只用来判断变化，不用来拼装结果。
+        const parsed = await parseSession(file).catch(() => null)
+        if (parsed === null) {
+          this.sessions.delete(file)
+          continue
+        }
         this.sessions.set(file, parsed)
       }
     }

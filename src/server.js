@@ -1,9 +1,11 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { WorkspaceStore } from './store.js'
 import { Scanner } from './scanner.js'
 import { defaultClaudeDir } from './adapters/claude.js'
 import { openClaudeSession } from './spawn.js'
+import { watchSessions } from './watcher.js'
 
 const ASSETS = {
   '/app.js': ['application/javascript; charset=utf-8', new URL('../app.js', import.meta.url)],
@@ -26,6 +28,7 @@ export async function startServer(options = {}) {
     spawnEnabled = true,
     claudeBin = null,
     dev = false,
+    watch = true,
   } = options
 
   const store = new WorkspaceStore(dataFile)
@@ -129,12 +132,20 @@ export async function startServer(options = {}) {
     server.listen(port, host, resolve)
   })
 
+  // 会话文件一有追加就重扫，前端下一次轮询便能拿到新卡片。
+  const unwatch = watch
+    ? watchSessions(join(claudeDir, 'projects'), () => { void rescan().catch(() => {}) })
+    : () => {}
+
   const address = server.address()
   return {
     url: `http://${host}:${address.port}/`,
     port: address.port,
     rescan,
-    close: () => new Promise(resolve => server.close(resolve)),
+    close: () => {
+      unwatch()
+      return new Promise(resolve => server.close(resolve))
+    },
   }
 }
 
