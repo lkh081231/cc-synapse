@@ -240,3 +240,26 @@ test('prunes persisted collapsed state when a conversation is archived', async (
   assert.match(archive, /key\.startsWith\(`\$\{id\}:`\)/)
   assert.match(archive, /persistCollapsedCards\(\)/)
 })
+
+test('lets the canvas zoom out far enough to show a whole project', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // 一个项目上百张卡片，缩到 60% 还是看不到整棵树。
+  assert.match(source, /const MIN_ZOOM = \.2/)
+  assert.match(source, /Math\.max\(MIN_ZOOM,/)
+  // 按比例而非固定量步进，低倍率下才不会一步跨掉半个量程。
+  assert.match(source, /zoomCanvasAtCenter\(1\.25\)/)
+  assert.match(source, /zoomCanvasAtCenter\(\.8\)/)
+  assert.match(source, /state\.zoom \* factor/)
+})
+
+test('moves the camera when a session is picked from the sidebar', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const start = source.indexOf("button.dataset.action === 'select-thread'")
+  const handler = source.slice(start, source.indexOf("'show-thread'", start))
+
+  // 选中即定位，不必再点一次「定位」。
+  assert.match(handler, /focusActiveCard\(\)/)
+  // 展开被折叠的祖先会改变布局，定位必须等这一帧画完。
+  assert.match(handler, /requestAnimationFrame/)
+})

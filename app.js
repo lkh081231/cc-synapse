@@ -53,6 +53,8 @@ const CAMERA_INSET_Y = 56
 // into the DOM; the margin pre-mounts cards just before they scroll into view
 // so panning never flashes empty space.
 const VIEWPORT_MARGIN = 1400
+// 一个项目动辄上百张卡片，缩到 20% 才看得到整棵树的形状。
+const MIN_ZOOM = .2
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -1278,7 +1280,7 @@ function canvasViewport(target) {
 }
 
 function zoomCanvas(viewport, nextZoom, clientX, clientY) {
-  const zoom = Math.min(4, Math.max(.6, Math.round(nextZoom * 100) / 100))
+  const zoom = Math.min(4, Math.max(MIN_ZOOM, Math.round(nextZoom * 100) / 100))
   if (zoom === state.zoom) return
   const bounds = viewport.getBoundingClientRect()
   const localX = clientX - bounds.left
@@ -1304,11 +1306,12 @@ function zoomCanvas(viewport, nextZoom, clientX, clientY) {
   if (label !== null) label.textContent = `${Math.round(state.zoom * 100)}%`
 }
 
-function zoomCanvasAtCenter(delta) {
+function zoomCanvasAtCenter(factor) {
   const viewport = document.querySelector('.canvas-viewport')
   if (!(viewport instanceof HTMLElement)) return
   const bounds = viewport.getBoundingClientRect()
-  zoomCanvas(viewport, state.zoom + delta, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+  // 按比例而不是按固定量：20% 时加 0.1 是翻半倍，400% 时几乎没感觉。
+  zoomCanvas(viewport, state.zoom * factor, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
 }
 
 function focusActiveCard() {
@@ -1442,7 +1445,7 @@ app.addEventListener('wheel', event => {
     return
   }
   event.preventDefault()
-  zoomCanvas(viewport, state.zoom + (event.deltaY < 0 ? .05 : -.05), event.clientX, event.clientY)
+  zoomCanvas(viewport, state.zoom * (event.deltaY < 0 ? 1.08 : .926), event.clientX, event.clientY)
 }, { passive: false })
 
 // Track pointer-down so the card click handler can tell a plain click from a
@@ -1531,9 +1534,9 @@ app.addEventListener('click', async event => {
       state.error = ''
       if (state.workspace !== null) revealConversationThread(conversationCards(state.workspace.threads), thread.id)
       render()
+      // 展开祖先会改变布局，等这一帧画完再定位，否则会移到旧位置。
+      window.requestAnimationFrame(() => { if (state.mode === 'canvas') focusActiveCard() })
       void loadThreadHistory(thread)
-      // Bidirectional current-session sync: switch DSH's current session
-      // without closing the map; the client confirms via synapse:current-session.
     }
     if (button.dataset.action === 'show-thread' && thread !== undefined) { state.activeId = thread.id; state.mode = 'thread'; state.detailTargetCardId = button.dataset.card ?? null; render(); void loadThreadHistory(thread) }
     if (button.dataset.action === 'show-canvas') { state.mode = 'canvas'; render() }
@@ -1565,8 +1568,8 @@ app.addEventListener('click', async event => {
     if (button.dataset.action === 'toggle-message' && button.dataset.message !== undefined) { state.expandedMessageIds.has(button.dataset.message) ? state.expandedMessageIds.delete(button.dataset.message) : state.expandedMessageIds.add(button.dataset.message); renderPreservingDetailScroll() }
     if (button.dataset.action === 'open-claude' && thread?.ccSessionId != null) void openInClaude(thread.ccSessionId).catch(setError)
     if (button.dataset.action === 'archive-thread' && thread !== undefined) await archiveThread(thread)
-    if (button.dataset.action === 'zoom-in') zoomCanvasAtCenter(.1)
-    if (button.dataset.action === 'zoom-out') zoomCanvasAtCenter(-.1)
+    if (button.dataset.action === 'zoom-in') zoomCanvasAtCenter(1.25)
+    if (button.dataset.action === 'zoom-out') zoomCanvasAtCenter(.8)
     if (button.dataset.action === 'focus-active') focusActiveCard()
     if (button.dataset.action === 'dismiss-error') { state.error = ''; render() }
     if (button.dataset.action === 'layout' && state.workspace !== null) {

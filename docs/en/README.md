@@ -36,10 +36,10 @@ path and only runs from the repository itself.
 | Action | Result |
 | --- | --- |
 | Drag a card | Moves it; the position is remembered |
-| Wheel | Zooms the canvas, or scrolls an answer when over a card |
+| Wheel | Zooms the canvas (20%–400%), or scrolls an answer when over a card |
 | Collapse | The minus on a card hides everything after it |
 | 整理 | Re-lays out every card |
-| 定位 | Returns to the current session |
+| 定位 | Returns to the current session (picking one in the sidebar already centres it) |
 | 详情 | Opens the full transcript |
 | Claude | Opens a terminal window and `--resume`s that session |
 | 归档 | Hides a session from the map; the file on disk is untouched |
