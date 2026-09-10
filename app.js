@@ -53,8 +53,10 @@ const CAMERA_INSET_Y = 56
 // into the DOM; the margin pre-mounts cards just before they scroll into view
 // so panning never flashes empty space.
 const VIEWPORT_MARGIN = 1400
-// 一个项目动辄上百张卡片，缩到 20% 才看得到整棵树的形状。
-const MIN_ZOOM = .2
+// 一个项目动辄上百张卡片，缩到 8% 才看得到整棵树的形状。
+const MIN_ZOOM = .08
+// 低于这个倍率时正文已经糊成灰块，只留提问反而看得清结构。
+const OVERVIEW_ZOOM = .34
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -1144,6 +1146,8 @@ function render() {
   app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="会话地图"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>会话地图</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span></div><nav class="thread-tree">${threads.map(thread => `<button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:#374151"><span class="tree-dot"></span><span>${escapeHtml(threadListTitle(thread))}</span>${thread.parentId === null ? '' : '<i>分支</i>'}</button>`).join('') || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar"><div class="view-switch" role="group" aria-label="操作"><button data-action="rescan" type="button">重新扫描</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
   installDragging()
   cacheCardConnectors()
+  // render 用 innerHTML 重建了整棵树，概览模式的类和变量也一并没了。
+  syncOverviewMode()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
   // center it on the focused card once the canvas DOM is mounted.
   if (state.canvasNeedsCenter) {
@@ -1219,6 +1223,23 @@ function closeCardInspector({ animate = true } = {}) {
 function applyCanvasTransform() {
   const content = document.querySelector('.canvas-content')
   if (content instanceof HTMLElement) content.style.transform = `translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})`
+  syncOverviewMode()
+}
+
+/**
+ * 缩得很小时把卡片收成只剩提问。
+ *
+ * 正文在这个倍率下只是一片灰，留着既看不清又盖住了结构。用类切换而不是
+ * 重新渲染，缩放过程中才不会掉帧。
+ */
+function syncOverviewMode() {
+  const viewport = document.querySelector('.canvas-viewport')
+  if (!(viewport instanceof HTMLElement)) return
+  const overview = state.zoom < OVERVIEW_ZOOM
+  viewport.classList.toggle('is-overview', overview)
+  // 卡片跟着画布一起被缩放，字号要反向补偿才能在屏幕上保持同样大小。
+  // 补偿到 OVERVIEW_ZOOM 那一档为止，再往上就该看正文了。
+  viewport.style.setProperty('--overview-scale', overview ? String(OVERVIEW_ZOOM / state.zoom) : '1')
 }
 
 function bindDragHandle(handle) {

@@ -36,7 +36,8 @@ path and only runs from the repository itself.
 | Action | Result |
 | --- | --- |
 | Drag a card | Moves it; the position is remembered |
-| Wheel | Zooms the canvas (20%–400%), or scrolls an answer when over a card |
+| Wheel | Zooms the canvas (8%–400%), or scrolls an answer when over a card |
+| Far out | Cards shrink to markers so the shape shows; hover one to read its question |
 | Collapse | The minus on a card hides everything after it |
 | 整理 | Re-lays out every card |
 | 定位 | Returns to the current session (picking one in the sidebar already centres it) |

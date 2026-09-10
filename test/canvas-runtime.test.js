@@ -245,12 +245,25 @@ test('lets the canvas zoom out far enough to show a whole project', async () => 
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
 
   // 一个项目上百张卡片，缩到 60% 还是看不到整棵树。
-  assert.match(source, /const MIN_ZOOM = \.2/)
+  assert.match(source, /const MIN_ZOOM = \.08/)
   assert.match(source, /Math\.max\(MIN_ZOOM,/)
   // 按比例而非固定量步进，低倍率下才不会一步跨掉半个量程。
   assert.match(source, /zoomCanvasAtCenter\(1\.25\)/)
   assert.match(source, /zoomCanvasAtCenter\(\.8\)/)
   assert.match(source, /state\.zoom \* factor/)
+})
+
+test('collapses cards to markers once the canvas is zoomed far out', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
+
+  // 极小倍率下正文只是灰块，留着反而盖住结构。
+  assert.match(source, /const OVERVIEW_ZOOM = /)
+  assert.match(source, /classList\.toggle\('is-overview'/)
+  // 字号靠反向补偿抵消画布缩放，否则提问在这个倍率下完全不可读。
+  assert.match(source, /--overview-scale/)
+  assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
+  assert.match(styles, /var\(--overview-scale/)
 })
 
 test('moves the camera when a session is picked from the sidebar', async () => {
