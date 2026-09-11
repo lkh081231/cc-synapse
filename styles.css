@@ -491,7 +491,44 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
    高度保持不变——改成 auto 会把卡片往上顶，看起来像跳了一下，
    而字在这个倍率下本来就读不了，多显示几行没有意义。
    要看内容用原生 title 提示，它不受画布缩放影响。 */
+/* 概览模式下卡片在屏幕上只剩十几像素，鼠标很难停住，悬停经常触发不了。
+   用一个透明的伪元素把命中范围向外撑开，视觉尺寸和连线锚点都不受影响。 */
+.canvas-viewport.is-overview .thread-card::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: calc(-1 * var(--hit-pad, 0px));
+}
+
+/* 悬停：抬起这一张，并在它旁边浮出提问。
+   浮层用伪元素自绘而不是靠原生 title——后者要等约一秒才出现，
+   位置又跟着鼠标跑，在这个倍率下看起来像飘在别处。
+   高度不变，连线的锚点才不会跟着动。 */
 .canvas-viewport.is-overview .thread-card:hover {
   z-index: 20;
-  box-shadow: 0 calc(4px * var(--overview-scale, 1)) calc(12px * var(--overview-scale, 1)) rgba(33,48,67,.32);
+  transform: translateY(calc(-6px * var(--overview-scale, 1)));
+  box-shadow: 0 calc(8px * var(--overview-scale, 1)) calc(18px * var(--overview-scale, 1)) rgba(33,48,67,.34);
+}
+.canvas-viewport.is-overview .thread-card:hover::after {
+  content: attr(data-question);
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  left: 0;
+  /* 尺寸全部按屏幕像素给，再用 scale 抵消画布缩放：浮层在任何倍率下
+     都是同样大的一块，不会跟着卡片一起缩成看不清的小点。 */
+  width: 260px;
+  max-height: 88px;
+  overflow: hidden;
+  transform: scale(var(--tip-scale, 1));
+  transform-origin: top left;
+  margin-top: 6px;
+  border-radius: 6px;
+  background: #111827;
+  padding: 8px 10px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  pointer-events: none;
 }

@@ -270,6 +270,11 @@ test('collapses cards to markers once the canvas is zoomed far out', async () =>
   assert.match(source, /function currentCardHeight\(/)
   assert.match(source, /const OVERVIEW_CARD_HEIGHT = /)
   assert.match(source, /if \(changed\) redrawConnectors\(\)/)
+  // 卡片缩到十几像素时很难用鼠标停住，命中区和浮层都按屏幕尺寸固定。
+  assert.match(source, /--hit-pad/)
+  assert.match(source, /--tip-scale/)
+  assert.match(styles, /is-overview \.thread-card::before/)
+  assert.match(styles, /is-overview \.thread-card:hover::after/)
   assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
   assert.match(styles, /var\(--overview-scale/)
 })
