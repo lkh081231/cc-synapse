@@ -290,6 +290,12 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 @media (max-width: 560px) { .synapse-shell { min-width: 0; grid-template-columns: 1fr; } .sidebar { display: none; } .topbar, .main-stage { grid-column: 1; } .view-switch { left: 50%; } .view-switch button { padding: 0 7px; } .top-actions > button { font-size: 11px; padding: 0 7px; } .thread-card { width: 280px; } }
 @media (prefers-reduced-motion: reduce) { .card-inspector { transition: opacity 120ms ease; } .card-inspector.is-opening, .card-inspector.is-closing { transform: none; } }
 
+/* ── 撤销之类的中性提示 ── */
+/* 放在底部居中，避开右上角那条红色的 .status-message：
+   两者可能同时出现，重叠了就谁也读不清。 */
+.canvas-toast { position: absolute; z-index: 50; bottom: 22px; left: 50%; transform: translateX(-50%); max-width: min(420px, calc(100% - 32px)); border-radius: 8px; background: rgba(23,32,51,.92); padding: 9px 14px; color: #fff; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(33,48,67,.28); pointer-events: none; }
+[data-theme="dark"] .canvas-toast { background: rgba(230,232,235,.94); color: #15171b; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+
 /* ── 改接分支的右键菜单 ── */
 /* 定位在 .main-stage 上而不是画布内容里：菜单要贴着鼠标，
    跟着画布一起缩放就会在小倍率下小到点不中。 */

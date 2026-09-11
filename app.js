@@ -78,6 +78,9 @@ const UNCERTAIN_LINEAGE = .5
 // 跟 styles.css 里 .anchor-menu 的尺寸对齐，用来把菜单夹在可视范围内。
 const ANCHOR_MENU_WIDTH = 260
 const ANCHOR_MENU_MAX_HEIGHT = 320
+const MAX_ANCHOR_UNDO = 50
+const TOAST_MS = 2200
+let toastTimer = 0
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -89,7 +92,7 @@ const state = {
   canvasCards: undefined, canvasCardsById: undefined, canvasGraph: undefined, mountedCardIds: new Set(), canvasNeedsCenter: false,
   detailScrollByThread: new Map(), detailThreadId: null, detailTargetCardId: null, detailOriginCardId: null,
   inspectorCardId: null, inspectorOpening: false, inspectorScrollByCard: new Map(),
-  anchorMenu: null,
+  anchorMenu: null, anchorUndo: [], toast: '',
 }
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]))
@@ -100,6 +103,7 @@ const threadListTitle = thread => thread.ccSessionTitle ?? thread.title ?? quest
 function rememberBranchAnchor(sessionId, anchor) {
   if (typeof sessionId !== 'string' || anchor === null || typeof anchor !== 'object') return false
   if (typeof anchor.sessionId !== 'string' || !Number.isInteger(anchor.sourceSeq)) return false
+  pushAnchorUndo(sessionId)
   state.branchAnchors.set(sessionId, { sessionId: anchor.sessionId, sourceSeq: anchor.sourceSeq })
   persistBranchAnchors()
   return true
@@ -107,9 +111,55 @@ function rememberBranchAnchor(sessionId, anchor) {
 
 /** 撤销手工指定，把这条分支还给自动推断。 */
 function forgetBranchAnchor(sessionId) {
-  if (!state.branchAnchors.delete(sessionId)) return false
+  if (!state.branchAnchors.has(sessionId)) return false
+  pushAnchorUndo(sessionId)
+  state.branchAnchors.delete(sessionId)
   persistBranchAnchors()
   return true
+}
+
+/**
+ * 改之前先把这条分支的**原值**记下来，Ctrl+Z 照原样放回去。
+ * 记 undefined 表示当时没有手工锚点（连线是推断出来的），撤销要删掉而不是写回。
+ */
+function pushAnchorUndo(sessionId) {
+  state.anchorUndo.push({ sessionId, previous: state.branchAnchors.get(sessionId) })
+  // 只留最近这些步。锚点改动是低频操作，栈无限长没意义，
+  // 但真让它无限长，一个开着不关的页面会一直往上堆。
+  if (state.anchorUndo.length > MAX_ANCHOR_UNDO) state.anchorUndo.shift()
+}
+
+/**
+ * 撤销上一次改接分支。只管分支锚点，不管拖动卡片——
+ * 拖错了把它拖回去就行，混在同一个栈里反而猜不到 Ctrl+Z 会撤哪一个。
+ */
+function undoBranchAnchor() {
+  const entry = state.anchorUndo.pop()
+  if (entry === undefined) return null
+  if (entry.previous === undefined) state.branchAnchors.delete(entry.sessionId)
+  else state.branchAnchors.set(entry.sessionId, entry.previous)
+  persistBranchAnchors()
+  return entry
+}
+
+/**
+ * 一条中性的短提示。撤销是成功操作，不能塞进 .status-message——
+ * 那个是红底 role="alert"，看起来像出错了。
+ */
+function showToast(text) {
+  state.toast = text
+  window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => {
+    state.toast = ''
+    const node = document.querySelector('.canvas-toast')
+    // 只摘掉这一个节点，不整页 render：撤销之后用户多半正盯着连线看，
+    // 重建 DOM 会把滚动位置和悬停状态一起冲掉。
+    if (node !== null) node.remove()
+  }, TOAST_MS)
+}
+
+function canvasToast() {
+  return state.toast === '' ? '' : `<div class="canvas-toast" role="status">${escapeHtml(state.toast)}</div>`
 }
 
 function persistBranchAnchors() {
@@ -1311,7 +1361,7 @@ function render() {
   const detailControls = state.mode === 'thread' ? `<div class="canvas-controls"><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v2.6M8 11.9v2.6M1.5 8h2.6M11.9 8h2.6"/></svg>定位</button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
-  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="会话地图"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>会话地图</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span></div><nav class="thread-tree">${threads.map(thread => `<button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${threadColor(thread)}"><span class="tree-dot"></span><span>${escapeHtml(threadListTitle(thread))}</span>${thread.parentId === null ? '' : '<i>分支</i>'}</button>`).join('') || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar"><div class="view-switch" role="group" aria-label="操作"><button data-action="rescan" type="button">重新扫描</button></div>${canvasControls}${detailControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
+  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="会话地图"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>会话地图</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span></div><nav class="thread-tree">${threads.map(thread => `<button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${threadColor(thread)}"><span class="tree-dot"></span><span>${escapeHtml(threadListTitle(thread))}</span>${thread.parentId === null ? '' : '<i>分支</i>'}</button>`).join('') || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar"><div class="view-switch" role="group" aria-label="操作"><button data-action="rescan" type="button">重新扫描</button></div>${canvasControls}${detailControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}${canvasToast()}</section></main>`
   installDragging()
   cacheCardConnectors()
   // render 用 innerHTML 重建了整棵树，概览模式的类和变量也一并没了。
@@ -1713,6 +1763,30 @@ app.addEventListener('pointerdown', event => {
 app.addEventListener('pointerup', queueSelectionFollowup)
 app.addEventListener('scroll', hideSelectionFollowup, true)
 document.addEventListener('selectionchange', queueSelectionFollowup)
+/**
+ * Ctrl+Z（macOS 上 Cmd+Z）撤销上一次改接分支。
+ *
+ * 只管分支锚点：拖错了卡片把它拖回去就行，混进同一个栈反而猜不到会撤哪一个。
+ * 输入框里不接管——那里的 Ctrl+Z 是浏览器自带的文本撤销，抢过来会很别扭。
+ */
+document.addEventListener('keydown', event => {
+  if (event.key !== 'z' && event.key !== 'Z') return
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
+  const target = event.target
+  if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return
+  event.preventDefault()
+  const entry = undoBranchAnchor()
+  if (entry === null) {
+    showToast('没有可撤销的分支改动')
+    render()
+    return
+  }
+  // 撤销要能看见效果：菜单开着会挡住连线，顺手关掉。
+  state.anchorMenu = null
+  showToast(entry.previous === undefined ? '已撤销：恢复自动推断' : '已撤销：分支接回原处')
+  render()
+})
+
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   // 菜单盖在详情面板上面，Escape 先关菜单，再按一次才关面板。
