@@ -33,46 +33,21 @@ export function watchSessions(root, onChange, { pollMs = 5_000, debounceMs = 300
     // 目录还不存在或平台不支持，交给巡检。
   }
 
-  let scanning = false
   const poll = setInterval(() => {
-    // 上一轮还没扫完就跳过：慢盘上两轮重叠会互相覆盖 fingerprints。
-    if (scanning) return
-    scanning = true
-    void reconcile(root, fingerprints)
-      .then(changed => { if (changed) fire() })
-      .finally(() => { scanning = false })
+    void reconcile(root, fingerprints).then(changed => {
+      if (changed) fire()
+    })
   }, pollMs)
   poll.unref?.()
 
   // 先记一次基线，免得第一轮巡检把所有文件都当成新变化。
-  void baseline(root, fingerprints)
+  void reconcile(root, fingerprints)
 
   return () => {
     closed = true
     clearTimeout(timer)
     clearInterval(poll)
     watcher?.close()
-  }
-}
-
-/**
- * 记下启动那一刻已经存在的文件，免得第一轮巡检把它们全当成新变化。
- *
- * 不能直接复用 reconcile：它是"列目录 + 逐个 stat"，整个过程是异步的，
- * 在它跑完之前新建的文件会被一并记进 fingerprints，之后巡检比对发现
- * "没变"，于是**永远不通知**。Linux 上 fs.watch 不支持 recursive、收不到
- * 子目录事件，巡检是唯一的腿，漏了就是新会话不出现在画布上。
- *
- * 所以先取一次目录快照划定时间界线，只给快照里的文件写基线指纹；
- * 快照之后新建的文件不在这张名单上，留给巡检去发现。
- */
-async function baseline(root, fingerprints) {
-  const snapshot = await sessionFiles(root)
-  for (const file of snapshot) {
-    const info = await stat(file).catch(() => null)
-    if (info === null) continue
-    // 巡检可能已经先一步把某个文件当成新文件处理过了，别用基线盖掉它。
-    if (!fingerprints.has(file)) fingerprints.set(file, `${info.size}:${info.mtimeMs}`)
   }
 }
 
