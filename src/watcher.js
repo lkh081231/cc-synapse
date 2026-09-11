@@ -22,15 +22,32 @@ export function watchSessions(root, onChange, { pollMs = 5_000, debounceMs = 300
     }, debounceMs)
   }
 
-  let watcher = null
-  try {
-    // Linux 的 inotify 不支持递归，那里只能靠巡检。
-    watcher = watch(root, { recursive: process.platform !== 'linux' }, (_event, filename) => {
-      if (typeof filename !== 'string' || filename.endsWith('.jsonl')) fire()
-    })
-    watcher.on('error', () => {})
-  } catch {
-    // 目录还不存在或平台不支持，交给巡检。
+  const watchers = []
+  const observe = (dir, recursive) => {
+    try {
+      const handle = watch(dir, { recursive }, (_event, filename) => {
+        if (typeof filename !== 'string' || filename.endsWith('.jsonl')) fire()
+      })
+      handle.on('error', () => {})
+      watchers.push(handle)
+    } catch {
+      // 目录不存在或平台不支持，交给巡检。
+    }
+  }
+
+  observe(root, process.platform !== 'linux')
+  // Linux 的 inotify 不支持递归，`watch(root)` 只盯 root 那一层，
+  // 子目录里新建会话文件收不到任何事件。这里给每个项目目录单独挂一个，
+  // 否则那条腿等于没有——巡检又跟基线有竞态，两条腿一起瞎就是
+  // 新会话永远不出现在画布上。
+  if (process.platform === 'linux') {
+    void readdir(root, { withFileTypes: true })
+      .then(entries => {
+        for (const entry of entries) {
+          if (!closed && entry.isDirectory()) observe(join(root, entry.name), false)
+        }
+      })
+      .catch(() => {})
   }
 
   const poll = setInterval(() => {
@@ -41,13 +58,27 @@ export function watchSessions(root, onChange, { pollMs = 5_000, debounceMs = 300
   poll.unref?.()
 
   // 先记一次基线，免得第一轮巡检把所有文件都当成新变化。
-  void reconcile(root, fingerprints)
+  //
+  // 基线是异步的，跨过它的新文件会被当成"本来就有"记进 fingerprints，
+  // 之后巡检比对"没变"就再也不通知。所以基线**只认扫描开始那一刻**的
+  // 目录快照，之后出现的文件一律留给巡检。
+  void baseline(root, fingerprints)
 
   return () => {
     closed = true
     clearTimeout(timer)
     clearInterval(poll)
-    watcher?.close()
+    for (const handle of watchers) handle.close()
+  }
+}
+
+/** 记下启动时已有的文件，只认调用瞬间的那份目录快照。 */
+async function baseline(root, fingerprints) {
+  for (const file of await sessionFiles(root)) {
+    const info = await stat(file).catch(() => null)
+    if (info === null) continue
+    // 巡检可能已经先一步把它当成新文件处理过，别拿基线盖掉那条记录。
+    if (!fingerprints.has(file)) fingerprints.set(file, `${info.size}:${info.mtimeMs}`)
   }
 }
 
