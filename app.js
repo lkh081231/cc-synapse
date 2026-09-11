@@ -1741,7 +1741,11 @@ app.addEventListener('click', async event => {
         state.mode = 'canvas'
         render()
         window.requestAnimationFrame(() => (origin === null ? focusActiveCard({ minZoom: 1 }) : focusCard(origin)))
+      } else if (state.inspectorCardId !== null) {
+        // 卡片详情面板开着：定位到正在看的这一张，并放大到读得了正文。
+        focusCard(state.inspectorCardId)
       } else {
+        // 画布上的纯定位，不动用户自己选的倍率。
         focusActiveCard()
       }
     }

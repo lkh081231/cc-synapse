@@ -308,8 +308,10 @@ test('returns from the detail view to the card it was opened from', async () => 
   assert.match(source, /function ensureReadableZoom\(/)
   // 从「详情」tab 或侧边栏进来时没有来源卡片，这条路径同样要放大。
   assert.match(source, /focusActiveCard\(\{ minZoom: 1 \}\)/)
-  // 画布模式下的定位是纯定位，不该擅自改变用户选的倍率。
-  assert.match(source, /\} else \{\s*focusActiveCard\(\)\s*\}/)
+  // 点卡片弹出的详情面板是第三种形态，模式仍是 canvas，容易漏掉。
+  assert.match(source, /focusCard\(state\.inspectorCardId\)/)
+  // 什么都没开时定位是纯导航，不该擅自改变用户选的倍率。
+  assert.match(source, /画布上的纯定位/)
   // 详情里也要有定位按钮，否则只能先返回再定位。
   assert.match(source, /const detailControls = state\.mode === 'thread'/)
 })
