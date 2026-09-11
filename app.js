@@ -1436,15 +1436,19 @@ function zoomCanvasAtCenter(factor) {
  * 从详情返回时用：如果画布还停在概览那一档，正文根本读不了，
  * 所以顺手把倍率提到看得清的程度，免得跳回去还要自己放大一遍。
  */
+/** 定位到某张卡片时，画布还停在读不了正文的倍率就顺手放大。 */
+function ensureReadableZoom(minZoom) {
+  if (minZoom === null || state.zoom >= minZoom) return
+  state.zoom = minZoom
+  const label = document.querySelector('.canvas-controls span')
+  if (label !== null) label.textContent = zoomLabel(state.zoom)
+}
+
 function focusCard(cardId, { minZoom = 1 } = {}) {
   const viewport = document.querySelector('.canvas-viewport')
   const card = state.canvasCardsById?.get(cardId)
-  if (!(viewport instanceof HTMLElement) || card === undefined) return focusActiveCard()
-  if (state.zoom < minZoom) {
-    state.zoom = minZoom
-    const label = document.querySelector('.canvas-controls span')
-    if (label !== null) label.textContent = zoomLabel(state.zoom)
-  }
+  if (!(viewport instanceof HTMLElement) || card === undefined) return focusActiveCard({ minZoom })
+  ensureReadableZoom(minZoom)
   const bounds = viewport.getBoundingClientRect()
   state.canvasCamera = {
     x: bounds.width / 2 - (card.position.x + CARD_WIDTH / 2) * state.zoom,
@@ -1455,11 +1459,12 @@ function focusCard(cardId, { minZoom = 1 } = {}) {
   syncCanvasViewport()
 }
 
-function focusActiveCard() {
+function focusActiveCard({ minZoom = null } = {}) {
   const viewport = document.querySelector('.canvas-viewport')
   if (!(viewport instanceof HTMLElement)) return
   const cards = state.canvasCards
   if (cards === undefined || cards.length === 0) return
+  ensureReadableZoom(minZoom)
   // Drafts win over the active conversation's latest turn; fall back to the
   // first card. Cards may be unmounted (outside the viewport), so the focus
   // target comes from the data model, never from DOM queries.
@@ -1696,7 +1701,7 @@ app.addEventListener('click', async event => {
       const origin = state.detailOriginCardId
       state.detailOriginCardId = null
       render()
-      if (origin !== null) window.requestAnimationFrame(() => focusCard(origin))
+      window.requestAnimationFrame(() => (origin === null ? focusActiveCard({ minZoom: 1 }) : focusCard(origin)))
     }
     if (button.dataset.action === 'toggle-card-children' && button.dataset.card !== undefined) {
       const cardId = button.dataset.card
@@ -1735,7 +1740,7 @@ app.addEventListener('click', async event => {
         state.detailOriginCardId = null
         state.mode = 'canvas'
         render()
-        window.requestAnimationFrame(() => (origin === null ? focusActiveCard() : focusCard(origin)))
+        window.requestAnimationFrame(() => (origin === null ? focusActiveCard({ minZoom: 1 }) : focusCard(origin)))
       } else {
         focusActiveCard()
       }
