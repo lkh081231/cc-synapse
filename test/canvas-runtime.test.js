@@ -244,8 +244,8 @@ test('prunes persisted collapsed state when a conversation is archived', async (
 test('lets the canvas zoom out far enough to show a whole project', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
 
-  // 一个项目上百张卡片，缩到 60% 还是看不到整棵树。
-  assert.match(source, /const MIN_ZOOM = \.08/)
+  // 不设实际下限，项目再大也缩得下去；留个极小值只为避开除以零。
+  assert.match(source, /const MIN_ZOOM = \.01/)
   assert.match(source, /Math\.max\(MIN_ZOOM,/)
   // 按比例而非固定量步进，低倍率下才不会一步跨掉半个量程。
   assert.match(source, /zoomCanvasAtCenter\(1\.25\)/)
@@ -264,6 +264,22 @@ test('collapses cards to markers once the canvas is zoomed far out', async () =>
   assert.match(source, /--overview-scale/)
   assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
   assert.match(styles, /var\(--overview-scale/)
+})
+
+test('gives each session its own colour', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // 服务端只发五个色，会话一多就撞；按 id 取色相既稳定又分得开。
+  assert.match(source, /function threadColor\(/)
+  assert.match(source, /hsl\(\$\{hash\}/)
+  // 画布和侧边栏必须用同一套颜色，否则对不上号。
+  assert.match(source, /color: threadColor\(thread\)/)
+  assert.match(source, /--thread-color:\$\{cardColor\(card\)\}/)
+  assert.match(source, /--thread-color:\$\{threadColor\(thread\)\}/)
+
+  // 侧边栏曾用 !important 把所有点统一成一种蓝，那会盖掉行内的会话色。
+  const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
+  assert.doesNotMatch(styles, /\.tree-row \{ --thread-color:[^}]*!important/)
 })
 
 test('moves the camera when a session is picked from the sidebar', async () => {
