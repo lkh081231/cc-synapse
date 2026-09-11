@@ -524,6 +524,25 @@ function cacheCardConnectors() {
   }
 }
 
+/**
+ * 概览模式下自绘的浮层已经显示了提问，标题上的原生提示会跟着一起冒出来，
+ * 变成两层叠在一起。进概览时把它收进 data 属性，出来时再挂回去。
+ */
+function syncTitleTooltips(viewport, overview) {
+  for (const title of viewport.querySelectorAll('.thread-card .thread-title')) {
+    if (overview) {
+      const text = title.getAttribute('title')
+      if (text !== null) {
+        title.dataset.title = text
+        title.removeAttribute('title')
+      }
+    } else if (title.dataset.title !== undefined) {
+      title.setAttribute('title', title.dataset.title)
+      delete title.dataset.title
+    }
+  }
+}
+
 /** 卡片高度变了（进出概览模式），所有连线都要按新的中点重画。 */
 function redrawConnectors() {
   const byId = state.canvasCardsById
@@ -879,7 +898,7 @@ function conversationCard(card, graph) {
   const foldLabel = collapsed ? '展开后续对话' : '折叠后续对话'
   const foldButton = childCount === 0 || card.canContinue === true ? '' : `<button class="graph-fold-button${collapsed ? ' collapsed' : ''}" data-action="toggle-card-children" data-card="${escapeHtml(card.id)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${foldLabel}" title="${foldLabel}"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3.5 8h9"/>${collapsed ? '<path d="M8 3.5v9"/>' : ''}</svg></button>`
   const branchButton = childCount === 0 || card.canContinue === true || !Number.isInteger(card.answer?.sourceSeq) ? '' : `<button class="graph-branch-button" data-action="open-branch" data-thread="${card.ccThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceSeq}" aria-label="在新对话中分支" title="在新对话中分支"><svg aria-hidden="true" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.0762 1.37207C14.0846 1.37228 14.9021 2.19077 14.9023 3.19922C14.9022 4.20772 14.0847 5.02518 13.0762 5.02539C12.2967 5.02539 11.6325 4.53691 11.3701 3.84961H4.35547C4.79397 4.26458 5.15861 4.7644 5.41699 5.33496L7.10645 9.06738C7.88526 10.7875 9.55104 11.9228 11.4189 12.0371C11.7085 11.4109 12.3411 10.9756 13.0762 10.9756C14.0843 10.9759 14.9023 11.7936 14.9023 12.8018C14.9023 13.81 14.0843 14.6277 13.0762 14.6279C12.2534 14.6279 11.5574 14.0832 11.3291 13.335C8.9868 13.1879 6.89981 11.7612 5.92285 9.60352L4.23242 5.87109C3.67503 4.64033 2.44878 3.84961 1.09766 3.84961V2.54883C1.10665 2.54883 1.11601 2.54975 1.125 2.5498L11.3701 2.54883C11.6326 1.86151 12.2969 1.37207 13.0762 1.37207ZM13.0762 12.2764C12.7858 12.2764 12.5508 12.5114 12.5508 12.8018C12.5508 13.0921 12.7858 13.3281 13.0762 13.3281C13.3664 13.3279 13.6025 13.092 13.6025 12.8018C13.6025 12.5115 13.3664 12.2766 13.0762 12.2764ZM13.0762 2.67285C12.7855 2.67285 12.55 2.90861 12.5498 3.19922C12.5499 3.48987 12.7855 3.72559 13.0762 3.72559C13.3667 3.72538 13.6024 3.48975 13.6025 3.19922C13.6023 2.90874 13.3666 2.67306 13.0762 2.67285Z" fill="currentColor"/></svg></button>`
-  return `<article class="thread-card ${selected}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.ccThreadId}" title="${escapeHtml(card.question)}" data-question="${escapeHtml(card.question.slice(0, 90))}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${cardColor(card)}">
+  return `<article class="thread-card ${selected}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.ccThreadId}" data-question="${escapeHtml(card.question.slice(0, 90))}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${cardColor(card)}">
     <button class="node-handle" data-drag-card="${card.id}" aria-label="拖动 ${escapeHtml(card.question)}" title="拖动卡片"></button>
     ${continueButton}${foldButton}${branchButton}
     <div class="thread-card-head"><span class="topic-dot"></span><button class="thread-title" data-action="show-thread" data-thread="${card.ccThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话：${escapeHtml(card.question)}">${escapeHtml(card.question)}</button></div>
@@ -1196,6 +1215,8 @@ function render() {
   installDragging()
   cacheCardConnectors()
   // render 用 innerHTML 重建了整棵树，概览模式的类和变量也一并没了。
+  // 新卡片还带着标题的原生提示，所以这里要强制同步一次。
+  overviewApplied = null
   syncOverviewMode()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
   // center it on the focused card once the canvas DOM is mounted.
@@ -1298,6 +1319,7 @@ function syncOverviewMode() {
   viewport.style.setProperty('--hit-pad', overview ? `${(14 / state.zoom).toFixed(1)}px` : '0px')
   // 浮层同理：它要在屏幕上是固定大小的一块，不跟着画布一起缩。
   viewport.style.setProperty('--tip-scale', overview ? String(1 / state.zoom) : '1')
+  if (changed) syncTitleTooltips(viewport, overview)
 }
 
 function bindDragHandle(handle) {

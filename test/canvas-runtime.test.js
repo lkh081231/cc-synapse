@@ -275,6 +275,9 @@ test('collapses cards to markers once the canvas is zoomed far out', async () =>
   assert.match(source, /--tip-scale/)
   assert.match(styles, /is-overview \.thread-card::before/)
   assert.match(styles, /is-overview \.thread-card:hover::after/)
+  // 自绘浮层已经显示了提问，标题的原生提示要收起来，否则两层叠在一起。
+  assert.match(source, /function syncTitleTooltips\(/)
+  assert.doesNotMatch(source, /class="thread-card [^`]*title="\$\{escapeHtml\(card\.question\)/)
   assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
   assert.match(styles, /var\(--overview-scale/)
 })
