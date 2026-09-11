@@ -298,6 +298,19 @@ test('gives each session its own colour', async () => {
   assert.doesNotMatch(styles, /\.tree-row \{ --thread-color:[^}]*!important/)
 })
 
+test('returns from the detail view to the card it was opened from', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // 进详情时记住来源卡片，返回时跳回那一张而不是会话的最后一轮。
+  assert.match(source, /detailOriginCardId/)
+  assert.match(source, /function focusCard\(/)
+  // 画布可能还停在概览那一档，跳回去要顺手放大到看得清正文。
+  assert.match(source, /minZoom = 1/)
+  assert.match(source, /state\.zoom < minZoom/)
+  // 详情里也要有定位按钮，否则只能先返回再定位。
+  assert.match(source, /const detailControls = state\.mode === 'thread'/)
+})
+
 test('moves the camera when a session is picked from the sidebar', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const start = source.indexOf("button.dataset.action === 'select-thread'")

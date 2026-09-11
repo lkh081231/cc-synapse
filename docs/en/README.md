@@ -40,7 +40,7 @@ path and only runs from the repository itself.
 | Far out | Cards shrink to markers, one colour per session; hover one to read its question |
 | Collapse | The minus on a card hides everything after it |
 | 整理 | Re-lays out every card |
-| 定位 | Returns to the current session (picking one in the sidebar already centres it) |
+| 定位 | Returns to the current session (picking one in the sidebar already centres it); from the detail view it jumps back to that card and zooms in enough to read it |
 | 详情 | Opens the full transcript |
 | Claude | Opens a terminal window and `--resume`s that session |
 | 归档 | Hides a session from the map; the file on disk is untouched |
