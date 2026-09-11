@@ -82,6 +82,10 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .connectors path { fill: none; stroke: #aebbc9; stroke-width: 1.5; }
 .connectors path.active-connector { stroke: #3478f6; }
 .connectors .draft-connector { stroke: #3478f6; stroke-dasharray: 5 4; }
+/* 推断出来的低置信度父子关系：虚线表示「这条边可能连错了，右键可以改」。 */
+.connectors path.uncertain-connector { stroke: #c0a04a; stroke-dasharray: 4 5; }
+/* 手工指定过的连线是确定的，画实线并加重，跟推断出来的区分开。 */
+.connectors path.anchored-connector { stroke: #6f7c8c; stroke-width: 2; }
 .cards-layer { position: absolute; inset: 0; }
 .thread-card { position: absolute; display: grid; width: 310px; height: 276px; grid-template-rows: auto auto minmax(0, 1fr) auto; border: 1px solid #d8e0e8; border-radius: 7px; background: #fff; box-shadow: 0 3px 11px rgba(33,48,67,.08); overflow: visible; }
 .thread-card:hover { border-color: #9ca3af; box-shadow: 0 8px 20px rgba(33,48,67,.13); }
@@ -285,6 +289,35 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 @media (max-width: 760px) { .synapse-shell { --sidebar-width: 200px; --sidebar-half: 100px; } .synapse-shell.sidebar-collapsed { --sidebar-width: 56px; --sidebar-half: 28px; } .sidebar { padding: 6px 10px; } .detail-head { display: grid; gap: 12px; padding: 22px 18px 14px; } .detail-scroll { padding: 16px 18px 20px; } .message-composer { padding: 12px 18px 16px; } .message-user { max-width: 92%; } .compare-view { padding: 26px 18px; } .compare-columns { grid-template-columns: 1fr; } .topbar { padding: 0 10px; } .brand strong { display: none; } .card-inspector { top: auto; width: 100%; min-width: 0; max-height: 78%; border-top: 1px solid #dbe3ec; border-left: 0; } .card-inspector.is-opening, .card-inspector.is-closing { transform: translateY(24px); } }
 @media (max-width: 560px) { .synapse-shell { min-width: 0; grid-template-columns: 1fr; } .sidebar { display: none; } .topbar, .main-stage { grid-column: 1; } .view-switch { left: 50%; } .view-switch button { padding: 0 7px; } .top-actions > button { font-size: 11px; padding: 0 7px; } .thread-card { width: 280px; } }
 @media (prefers-reduced-motion: reduce) { .card-inspector { transition: opacity 120ms ease; } .card-inspector.is-opening, .card-inspector.is-closing { transform: none; } }
+
+/* ── 改接分支的右键菜单 ── */
+/* 定位在 .main-stage 上而不是画布内容里：菜单要贴着鼠标，
+   跟着画布一起缩放就会在小倍率下小到点不中。 */
+.anchor-menu { position: absolute; z-index: 40; width: 260px; max-height: 320px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #dbe3ec; border-radius: 8px; background: #fff; box-shadow: 0 10px 28px rgba(33,48,67,.22); font-size: 12px; }
+.anchor-menu-head { padding: 9px 12px; border-bottom: 1px solid #eef2f6; color: #8390a0; font-size: 11px; font-weight: 650; }
+.anchor-menu-search { margin: 6px 8px; border: 1px solid #dbe3ec; border-radius: 6px; background: #fff; padding: 6px 8px; color: #172033; font: inherit; font-size: 12px; }
+.anchor-menu-search:focus { outline: 2px solid #3478f6; outline-offset: -1px; }
+.anchor-menu-list { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: 4px; }
+.anchor-menu-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 0; border-radius: 6px; background: transparent; padding: 7px 8px; color: #172033; font-size: 12px; text-align: left; }
+.anchor-menu-row:hover { background: #eef2f6; }
+.anchor-menu-row.is-current { color: #3478f6; font-weight: 650; }
+.anchor-menu-dot { width: 8px; height: 8px; border-radius: 50%; }
+.anchor-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anchor-menu-turn { color: #8390a0; font-size: 11px; }
+.anchor-menu-reset { border: 0; border-top: 1px solid #eef2f6; background: transparent; padding: 9px 12px; color: #b42318; font-size: 12px; text-align: left; }
+.anchor-menu-reset:hover { background: #fef3f2; }
+.anchor-menu-empty { margin: 0; padding: 12px; color: #8390a0; }
+[data-theme="dark"] .anchor-menu { border-color: #2f333a; background: #1a1d22; box-shadow: 0 10px 28px rgba(0,0,0,.5); }
+[data-theme="dark"] .anchor-menu-head { border-bottom-color: #26282d; color: #8f959e; }
+[data-theme="dark"] .anchor-menu-search { border-color: #2f333a; background: #15171b; color: #e6e8eb; }
+[data-theme="dark"] .anchor-menu-row { color: #e6e8eb; }
+[data-theme="dark"] .anchor-menu-row:hover { background: #22262c; }
+[data-theme="dark"] .anchor-menu-row.is-current { color: #5b8def; }
+[data-theme="dark"] .anchor-menu-turn { color: #8f959e; }
+[data-theme="dark"] .anchor-menu-reset { border-top-color: #26282d; color: #f97066; }
+[data-theme="dark"] .anchor-menu-reset:hover { background: #2a1d1d; }
+[data-theme="dark"] .connectors path.uncertain-connector { stroke: #9a7f3a; }
+[data-theme="dark"] .connectors path.anchored-connector { stroke: #6b7280; }
 
 /* ── Dark theme: follows DSH's body[data-ds-dark-theme] via synapse:theme ── */
 [data-theme="dark"] { color-scheme: dark; }

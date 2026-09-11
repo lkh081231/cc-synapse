@@ -23,10 +23,18 @@ const savedQuickPhrases = (() => {
     return stored === null ? DEFAULT_QUICK_PHRASES : normalizeQuickPhrases(JSON.parse(stored))
   } catch { return DEFAULT_QUICK_PHRASES }
 })()
+// 锚点两端都按 Claude 的 sessionId + sourceSeq 存，不能用 thread.id 或卡片 id：
+// 那两个是每次重建投影时 randomUUID() 出来的，服务重启就变，存下来的覆盖会
+// 悄悄失配——改完看着生效，重开就回到推断值。
 const savedBranchAnchors = (() => {
   try {
     const value = JSON.parse(localStorage.getItem('cc-synapse:branch-anchors') ?? '[]')
-    return Array.isArray(value) ? value.filter(item => Array.isArray(item) && typeof item[0] === 'string' && typeof item[1] === 'string') : []
+    if (!Array.isArray(value)) return []
+    return value.filter(item => Array.isArray(item)
+      && typeof item[0] === 'string'
+      && item[1] !== null && typeof item[1] === 'object'
+      && typeof item[1].sessionId === 'string'
+      && Number.isInteger(item[1].sourceSeq))
   } catch { return [] }
 })()
 const savedCardPositions = (() => {
@@ -64,6 +72,12 @@ const READABLE_CARD_WIDTH = 150
 // 概览模式下卡片收成这么高（世界坐标）。固定值而不是跟着缩放变，
 // 连线才有稳定的锚点，不会飘在卡片外面。
 const OVERVIEW_CARD_HEIGHT = 96
+// 共享前缀低于这个比例时，父子关系基本是蒙的。连线画成虚线，
+// 提醒这条边可以右键改掉，而不是让它跟确定的边长得一模一样。
+const UNCERTAIN_LINEAGE = .5
+// 跟 styles.css 里 .anchor-menu 的尺寸对齐，用来把菜单夹在可视范围内。
+const ANCHOR_MENU_WIDTH = 260
+const ANCHOR_MENU_MAX_HEIGHT = 320
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -75,6 +89,7 @@ const state = {
   canvasCards: undefined, canvasCardsById: undefined, canvasGraph: undefined, mountedCardIds: new Set(), canvasNeedsCenter: false,
   detailScrollByThread: new Map(), detailThreadId: null, detailTargetCardId: null, detailOriginCardId: null,
   inspectorCardId: null, inspectorOpening: false, inspectorScrollByCard: new Map(),
+  anchorMenu: null,
 }
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]))
@@ -82,8 +97,22 @@ const formatTime = value => new Date(value).toLocaleString('zh-CN', { month: 'nu
 const currentThread = () => state.workspace?.threads.find(thread => thread.id === state.activeId) ?? state.workspace?.threads[0] ?? null
 const threadListTitle = thread => thread.ccSessionTitle ?? thread.title ?? questionFor(thread)
 
-function rememberBranchAnchor(sessionId, cardId) {
-  state.branchAnchors.set(sessionId, cardId)
+function rememberBranchAnchor(sessionId, anchor) {
+  if (typeof sessionId !== 'string' || anchor === null || typeof anchor !== 'object') return false
+  if (typeof anchor.sessionId !== 'string' || !Number.isInteger(anchor.sourceSeq)) return false
+  state.branchAnchors.set(sessionId, { sessionId: anchor.sessionId, sourceSeq: anchor.sourceSeq })
+  persistBranchAnchors()
+  return true
+}
+
+/** 撤销手工指定，把这条分支还给自动推断。 */
+function forgetBranchAnchor(sessionId) {
+  if (!state.branchAnchors.delete(sessionId)) return false
+  persistBranchAnchors()
+  return true
+}
+
+function persistBranchAnchors() {
   try { localStorage.setItem('cc-synapse:branch-anchors', JSON.stringify([...state.branchAnchors])) } catch { /* Private browsing may disable local storage. */ }
 }
 
@@ -160,7 +189,8 @@ function messagesFromEvents(events) {
 async function loadThreadHistory() {}
 
 function canReplaceView() {
-  return state.draft === null && !state.dragging && !state.canvasGesture && Date.now() >= state.canvasRefreshAfter && !document.activeElement?.matches('textarea')
+  // 菜单开着的时候后台刷新会把它连同搜索框里的内容一起冲掉。
+  return state.draft === null && state.anchorMenu === null && !state.dragging && !state.canvasGesture && Date.now() >= state.canvasRefreshAfter && !document.activeElement?.matches('textarea')
 }
 
 function deferCanvasRefresh(delay = 700) {
@@ -700,6 +730,7 @@ function conversationCards(threads) {
         id,
         positionKey,
         ccThreadId: thread.id,
+        ccSessionId: thread.ccSessionId ?? null,
         color: threadColor(thread),
         sourceParentId: thread.parentId,
         parentId: null,
@@ -727,6 +758,7 @@ function conversationCards(threads) {
       id,
       positionKey,
       ccThreadId: thread.id,
+      ccSessionId: thread.ccSessionId ?? null,
       color: threadColor(thread),
       sourceParentId: thread.parentId,
       parentId: null,
@@ -759,7 +791,19 @@ function conversationCards(threads) {
       const inheritedTurn = Number.isSafeInteger(seedLength)
         ? parentCards?.filter(candidate => Number.isInteger(candidate.sourceSeq) && candidate.sourceSeq < seedLength).at(-1)
         : undefined
-      card.parentId = state.branchAnchors.get(card.ccThreadId) ?? inheritedTurn?.id ?? null
+      // 分支的父卡片是「共享提问前缀」猜出来的，会猜错。手工指定优先，
+      // 但把自动推断的结果留着，撤销时才知道该退回哪张。
+      const anchor = card.ccSessionId === null ? undefined : state.branchAnchors.get(card.ccSessionId)
+      const anchoredCard = anchor === undefined
+        ? undefined
+        : cards.find(candidate => candidate.ccSessionId === anchor.sessionId && candidate.sourceSeq === anchor.sourceSeq)
+      card.inferredParentId = inheritedTurn?.id ?? null
+      // 锚点指向的卡片可能已经不在了（会话被归档或删掉），这时退回推断值，
+      // 而不是让这张卡片变成孤儿。
+      card.anchored = anchoredCard !== undefined
+      card.confidence = typeof sourceThread?.confidence === 'number' ? sourceThread.confidence : 0
+      card.isBranchRoot = true
+      card.parentId = anchoredCard?.id ?? card.inferredParentId
     }
   }
   return layoutConversationGraph(cards, threads)
@@ -877,14 +921,68 @@ function canvasConnectors(cards) {
   const links = cards.map(card => {
     const parent = card.parentId === null ? null : index.get(card.parentId)
     if (parent === undefined || parent === null) return ''
-    const active = card.ccThreadId === state.activeId && parent.ccThreadId === state.activeId ? ' active-connector' : ''
-    return `<path class="${active.trim()}" data-from="${escapeHtml(parent.id)}" data-to="${escapeHtml(card.id)}" d="${connectorPath(parent.position, card.position, currentCardHeight())}"></path>`
+    const classes = []
+    if (card.ccThreadId === state.activeId && parent.ccThreadId === state.activeId) classes.push('active-connector')
+    // 手工指定的连线是确定的；推断出来的低置信度连线画成虚线，提示它可能连错了。
+    if (card.anchored === true) classes.push('anchored-connector')
+    else if (card.isBranchRoot === true && card.confidence < UNCERTAIN_LINEAGE) classes.push('uncertain-connector')
+    return `<path class="${classes.join(' ')}" data-from="${escapeHtml(parent.id)}" data-to="${escapeHtml(card.id)}" d="${connectorPath(parent.position, card.position, currentCardHeight())}"></path>`
   })
   const placement = draftPlacement(cards)
   if (placement !== null) {
     links.push(`<path class="draft-connector" data-from="${escapeHtml(placement.parent.id)}" data-to="draft" d="${connectorPath(placement.parent.position, placement.position, currentCardHeight())}"></path>`)
   }
   return links.join('')
+}
+
+/**
+ * 能当这条分支父卡片的候选。
+ *
+ * 要排掉自己的后代：接上去就成了环。布局和子树计数都各自防了环不会挂，
+ * 但连线会画成一团谁也读不懂的东西，不该让用户选得到。
+ * 顺着 parentId 往上爬比往下搜后代便宜：每张卡片只有一个父。
+ */
+function branchAnchorCandidates(card, cards) {
+  const byId = new Map(cards.map(item => [item.id, item]))
+  const isDescendantOfCard = candidate => {
+    const seen = new Set()
+    let cursor = candidate
+    while (cursor !== undefined && !seen.has(cursor.id)) {
+      if (cursor.id === card.id) return true
+      seen.add(cursor.id)
+      cursor = cursor.parentId === null ? undefined : byId.get(cursor.parentId)
+    }
+    return false
+  }
+  // 锚点按 sessionId + sourceSeq 存，两者缺一就没法持久化，直接不做候选。
+  return cards.filter(candidate => candidate.id !== card.id
+    && candidate.ccSessionId != null
+    && Number.isInteger(candidate.sourceSeq)
+    && !isDescendantOfCard(candidate))
+}
+
+function anchorMenuView(cards) {
+  const menu = state.anchorMenu
+  if (menu === null || menu === undefined) return ''
+  const card = cards.find(item => item.id === menu.cardId)
+  if (card === undefined) return ''
+  const query = (menu.query ?? '').trim().toLowerCase()
+  const candidates = branchAnchorCandidates(card, cards)
+    .filter(candidate => query === '' || `${candidate.question ?? ''}`.toLowerCase().includes(query))
+  const rows = candidates.map(candidate => {
+    const current = candidate.id === card.parentId ? ' is-current' : ''
+    const label = `${candidate.question ?? ''}`.trim() || '（无标题）'
+    return `<button class="anchor-menu-row${current}" type="button" data-action="set-branch-anchor" data-card="${escapeHtml(card.id)}" data-anchor="${escapeHtml(candidate.id)}" title="${escapeHtml(label)}"><span class="anchor-menu-dot" style="background:${escapeHtml(candidate.color ?? '#94a3b8')}"></span><span class="anchor-menu-label">${escapeHtml(label)}</span><span class="anchor-menu-turn">第 ${candidate.turnIndex + 1} 轮</span></button>`
+  }).join('')
+  const reset = card.anchored === true
+    ? `<button class="anchor-menu-reset" type="button" data-action="clear-branch-anchor" data-card="${escapeHtml(card.id)}">恢复自动推断</button>`
+    : ''
+  const body = rows === ''
+    ? `<p class="anchor-menu-empty">${query === '' ? '没有其他会话可以接。' : '没有匹配的卡片。'}</p>`
+    : `<div class="anchor-menu-list">${rows}</div>`
+  // 候选是「所有别的会话的每一轮」，几十上百条是常态，靠搜索缩小范围。
+  const search = `<input class="anchor-menu-search" type="search" data-anchor-search value="${escapeHtml(menu.query ?? '')}" placeholder="搜索提问…" aria-label="搜索候选卡片">`
+  return `<div class="anchor-menu" style="left:${menu.x}px; top:${menu.y}px" role="menu" aria-label="改接到哪张卡片之后"><header class="anchor-menu-head">改到这张之后</header>${search}${body}${reset}</div>`
 }
 
 function conversationCard(card, graph) {
@@ -1067,7 +1165,7 @@ function renderCanvas() {
   state.mountedCardIds = new Set(visible)
   const mounted = cards.filter(card => visible.has(card.id))
   const inspector = state.inspectorCardId === null ? '' : renderCardInspector(state.canvasCardsById.get(state.inspectorCardId))
-  return `<section class="canvas-view"><div class="canvas-viewport"><div class="canvas-content" style="transform:translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})"><svg class="connectors">${canvasConnectors(cards)}</svg><div class="cards-layer">${mounted.map(card => conversationCard(card, graph)).join('')}${draftCard(cards)}</div></div></div>${inspector}</section>`
+  return `<section class="canvas-view"><div class="canvas-viewport"><div class="canvas-content" style="transform:translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})"><svg class="connectors">${canvasConnectors(cards)}</svg><div class="cards-layer">${mounted.map(card => conversationCard(card, graph)).join('')}${draftCard(cards)}</div></div></div>${anchorMenuView(cards)}${inspector}</section>`
 }
 
 function isProcessMessage(message) {
@@ -1220,6 +1318,11 @@ function render() {
   // 新卡片还带着标题的原生提示，所以这里要强制同步一次。
   overviewApplied = null
   syncOverviewMode()
+  // 菜单刚打开就把光标放进搜索框：候选动辄上百条，键盘直接能用。
+  if (state.anchorMenu !== null && state.anchorMenu.focused !== true) {
+    state.anchorMenu.focused = true
+    window.requestAnimationFrame(() => document.querySelector('.anchor-menu-search')?.focus())
+  }
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
   // center it on the focused card once the canvas DOM is mounted.
   if (state.canvasNeedsCenter) {
@@ -1611,12 +1714,89 @@ app.addEventListener('pointerup', queueSelectionFollowup)
 app.addEventListener('scroll', hideSelectionFollowup, true)
 document.addEventListener('selectionchange', queueSelectionFollowup)
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || state.mode !== 'canvas' || state.inspectorCardId === null) return
+  if (event.key !== 'Escape') return
+  // 菜单盖在详情面板上面，Escape 先关菜单，再按一次才关面板。
+  if (state.anchorMenu !== null) {
+    event.preventDefault()
+    state.anchorMenu = null
+    render()
+    return
+  }
+  if (state.mode !== 'canvas' || state.inspectorCardId === null) return
   event.preventDefault()
   closeCardInspector({ animate: false })
 })
 
+/**
+ * 右键一张分支卡片，改它接在谁后面。
+ *
+ * 没有做「拖连线到别的卡片」：卡片本身已经绑了 pointerdown 拖动，画布还要
+ * 靠 pointerdown 平移，再插一条拖拽手势要跟这两个抢事件；而且概览模式下
+ * 卡片缩成小方块，边缘根本没有地方放拖拽把手——恰恰是最需要改连线的时候。
+ */
+app.addEventListener('contextmenu', event => {
+  if (state.mode !== 'canvas') return
+  const element = event.target instanceof Element ? event.target.closest('.thread-card[data-card-id]') : null
+  if (!(element instanceof HTMLElement)) {
+    if (state.anchorMenu !== null) { state.anchorMenu = null; render() }
+    return
+  }
+  const cardId = element.dataset.cardId
+  const card = state.canvasCardsById?.get(cardId)
+  // 只有分支的头一张卡片有「接在谁后面」可言：同一条会话里的后续追问
+  // 是顺序关系，改了就不是这条会话了。
+  if (card === undefined || card.isBranchRoot !== true) return
+  event.preventDefault()
+  // 菜单挂在 .canvas-view 里（它是 position:relative，也就是菜单的 offsetParent），
+  // 所以要把鼠标的视口坐标换算成相对它的坐标，否则会飘到画布外面去。
+  const host = document.querySelector('.canvas-view')
+  const bounds = host?.getBoundingClientRect()
+  const left = event.clientX - (bounds?.left ?? 0)
+  const top = event.clientY - (bounds?.top ?? 0)
+  // 贴着右下边缘右键时，菜单整个落到视口外。夹回可见范围内。
+  const maxX = Math.max(0, (bounds?.width ?? 0) - ANCHOR_MENU_WIDTH - 8)
+  const maxY = Math.max(0, (bounds?.height ?? 0) - ANCHOR_MENU_MAX_HEIGHT - 8)
+  state.anchorMenu = {
+    cardId,
+    x: Math.round(Math.min(Math.max(0, left), maxX)),
+    y: Math.round(Math.min(Math.max(0, top), maxY)),
+  }
+  render()
+})
+
+/**
+ * 菜单里的搜索就地过滤已经渲染出来的行，不走 render()。
+ * render() 是 innerHTML 重建，每敲一个字都会把输入框连同焦点和光标位置一起冲掉。
+ */
+app.addEventListener('input', event => {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement) || input.dataset.anchorSearch === undefined) return
+  const menu = input.closest('.anchor-menu')
+  if (menu === null) return
+  const query = input.value.trim().toLowerCase()
+  if (state.anchorMenu !== null) state.anchorMenu.query = input.value
+  let visible = 0
+  for (const row of menu.querySelectorAll('.anchor-menu-row')) {
+    const label = row.querySelector('.anchor-menu-label')?.textContent?.toLowerCase() ?? ''
+    const hit = query === '' || label.includes(query)
+    row.hidden = !hit
+    if (hit) visible += 1
+  }
+  const empty = menu.querySelector('.anchor-menu-empty')
+  const list = menu.querySelector('.anchor-menu-list')
+  if (list !== null) list.hidden = visible === 0
+  if (empty !== null) empty.hidden = visible > 0
+  else if (visible === 0 && list !== null) {
+    list.insertAdjacentHTML('afterend', '<p class="anchor-menu-empty">没有匹配的卡片。</p>')
+  }
+})
+
 app.addEventListener('click', async event => {
+  // 菜单外的任何点击都关掉它，但别吞掉这次点击本身。
+  if (state.anchorMenu !== null && !(event.target instanceof Element && event.target.closest('.anchor-menu'))) {
+    state.anchorMenu = null
+    render()
+  }
   const button = event.target.closest('[data-action]')
   if (!(button instanceof HTMLElement)) {
     const card = event.target instanceof Element ? event.target.closest('.thread-card[data-thread]:not(.draft-card)') : null
@@ -1669,6 +1849,23 @@ app.addEventListener('click', async event => {
         persistQuickPhrases()
         render()
       }
+    }
+    if (button.dataset.action === 'set-branch-anchor') {
+      const card = state.canvasCardsById?.get(button.dataset.card)
+      const anchorCard = state.canvasCardsById?.get(button.dataset.anchor)
+      if (card?.ccSessionId != null && anchorCard?.ccSessionId != null) {
+        rememberBranchAnchor(card.ccSessionId, { sessionId: anchorCard.ccSessionId, sourceSeq: anchorCard.sourceSeq })
+      }
+      state.anchorMenu = null
+      render()
+      return
+    }
+    if (button.dataset.action === 'clear-branch-anchor') {
+      const card = state.canvasCardsById?.get(button.dataset.card)
+      if (card?.ccSessionId != null) forgetBranchAnchor(card.ccSessionId)
+      state.anchorMenu = null
+      render()
+      return
     }
     if (button.dataset.action === 'close-card-inspector') { closeCardInspector(); return }
     if (button.dataset.action === 'toggle-sidebar') { state.sidebarCollapsed = !state.sidebarCollapsed; render() }
