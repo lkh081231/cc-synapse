@@ -56,8 +56,11 @@ const VIEWPORT_MARGIN = 1400
 // 不设下限：项目再大也能一直缩到看见全貌。留一个极小值只是为了
 // 避免除以零——相机换算和悬停补偿都要除以 zoom。
 const MIN_ZOOM = .01
-// 低于这个倍率时正文已经糊成灰块，只留提问反而看得清结构。
-const OVERVIEW_ZOOM = .34
+// 卡片在屏幕上窄于这个宽度时，正文已经读不出来了。
+// 用屏幕宽度而不是缩放比例做判据，不同屏幕和卡片尺寸下的行为才一致。
+// 到了这一档就切成概览：正文收起来只留提问，滚轮也还给画布——
+// 卡片这时几乎铺满画布，鼠标无处可放，否则缩放就再也回不来。
+const READABLE_CARD_WIDTH = 150
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -1163,7 +1166,7 @@ function render() {
   const view = state.mode === 'thread' ? renderThread() : renderCanvas()
   const choices = workspaceChoices()
   const selectedWorkspaceId = state.selectedDshWorkspaceId ?? workspace?.id
-  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout" title="整理节点" aria-label="整理节点"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>整理</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v2.6M8 11.9v2.6M1.5 8h2.6M11.9 8h2.6"/></svg>定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button></div>` : ''
+  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout" title="整理节点" aria-label="整理节点"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>整理</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v2.6M8 11.9v2.6M1.5 8h2.6M11.9 8h2.6"/></svg>定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button><span>${zoomLabel(state.zoom)}</span><button data-action="zoom-in" aria-label="放大" title="放大"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
   app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="会话地图"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>会话地图</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><label class="workspace-label"><span>工作区</span><span class="workspace-select"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 4.75h3l1.2 1.5h6.8v5.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg><select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span></div><nav class="thread-tree">${threads.map(thread => `<button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${threadColor(thread)}"><span class="tree-dot"></span><span>${escapeHtml(threadListTitle(thread))}</span>${thread.parentId === null ? '' : '<i>分支</i>'}</button>`).join('') || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar"><div class="view-switch" role="group" aria-label="操作"><button data-action="rescan" type="button">重新扫描</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
@@ -1258,11 +1261,11 @@ function applyCanvasTransform() {
 function syncOverviewMode() {
   const viewport = document.querySelector('.canvas-viewport')
   if (!(viewport instanceof HTMLElement)) return
-  const overview = state.zoom < OVERVIEW_ZOOM
+  const overview = state.zoom * CARD_WIDTH < READABLE_CARD_WIDTH
   viewport.classList.toggle('is-overview', overview)
   // 卡片跟着画布一起被缩放，字号要反向补偿才能在屏幕上保持同样大小。
-  // 补偿到 OVERVIEW_ZOOM 那一档为止，再往上就该看正文了。
-  viewport.style.setProperty('--overview-scale', overview ? String(OVERVIEW_ZOOM / state.zoom) : '1')
+  // 补偿到刚好可读的那一档为止，再往上就该看正文了。
+  viewport.style.setProperty('--overview-scale', overview ? String(READABLE_CARD_WIDTH / CARD_WIDTH / state.zoom) : '1')
 }
 
 function bindDragHandle(handle) {
@@ -1323,8 +1326,21 @@ function canvasViewport(target) {
   return target instanceof Element ? target.closest('.canvas-viewport') : null
 }
 
+/** 低倍率下整数百分比分不出相邻两档，补一位小数，否则看起来像卡死了。 */
+function zoomLabel(zoom) {
+  return zoom < .1 ? `${(zoom * 100).toFixed(1)}%` : `${Math.round(zoom * 100)}%`
+}
+
+/** 倍率越小保留越多小数，保证每一步缩放都真的落在一个新值上。 */
+function roundZoom(zoom) {
+  const digits = zoom < .1 ? 4 : zoom < 1 ? 3 : 2
+  return Number(zoom.toFixed(digits))
+}
+
 function zoomCanvas(viewport, nextZoom, clientX, clientY) {
-  const zoom = Math.min(4, Math.max(MIN_ZOOM, Math.round(nextZoom * 100) / 100))
+  // 按有效数字取整，不是固定两位小数：2% 时一步比例缩放只变 0.16%，
+  // 四舍五入到 1% 会把它抹成"没变化"，滚轮从此再也放大不回来。
+  const zoom = Math.min(4, Math.max(MIN_ZOOM, roundZoom(nextZoom)))
   if (zoom === state.zoom) return
   const bounds = viewport.getBoundingClientRect()
   const localX = clientX - bounds.left
@@ -1347,7 +1363,7 @@ function zoomCanvas(viewport, nextZoom, clientX, clientY) {
     syncCanvasViewport()
   }
   const label = document.querySelector('.canvas-controls span')
-  if (label !== null) label.textContent = `${Math.round(state.zoom * 100)}%`
+  if (label !== null) label.textContent = zoomLabel(state.zoom)
 }
 
 function zoomCanvasAtCenter(factor) {
@@ -1474,7 +1490,10 @@ app.addEventListener('wheel', event => {
   const viewport = canvasViewport(event.target)
   if (!(viewport instanceof HTMLElement)) return
   const card = event.target instanceof Element ? event.target.closest('.thread-card') : null
-  if (card instanceof HTMLElement) {
+  // 卡片缩小之后正文已经读不了，再把滚轮让给它就等于锁死了缩放——
+  // 卡片这时几乎铺满画布，鼠标放哪儿都在某张上面。所以只有卡片在屏幕上
+  // 仍然足够大时，滚轮才归它滚正文。
+  if (card instanceof HTMLElement && state.zoom * CARD_WIDTH >= READABLE_CARD_WIDTH) {
     // Over a card the wheel scrolls that card's own answer with the browser's
     // native wheel (OS-smooth, never a page jump per notch); the answer's
     // overscroll-behavior: contain stops the scroll chaining into the canvas.

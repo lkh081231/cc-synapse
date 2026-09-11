@@ -258,10 +258,14 @@ test('collapses cards to markers once the canvas is zoomed far out', async () =>
   const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
 
   // 极小倍率下正文只是灰块，留着反而盖住结构。
-  assert.match(source, /const OVERVIEW_ZOOM = /)
+  // 判据是卡片在屏幕上的宽度，不是缩放比例——不同屏幕下行为才一致。
+  assert.match(source, /const READABLE_CARD_WIDTH = /)
+  assert.match(source, /state\.zoom \* CARD_WIDTH < READABLE_CARD_WIDTH/)
   assert.match(source, /classList\.toggle\('is-overview'/)
   // 字号靠反向补偿抵消画布缩放，否则提问在这个倍率下完全不可读。
   assert.match(source, /--overview-scale/)
+  // 卡片缩到读不了正文时，滚轮必须还给画布，否则铺满屏幕后就缩放不回来了。
+  assert.match(source, /state\.zoom \* CARD_WIDTH >= READABLE_CARD_WIDTH/)
   assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
   assert.match(styles, /var\(--overview-scale/)
 })
