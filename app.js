@@ -61,6 +61,9 @@ const MIN_ZOOM = .01
 // 到了这一档就切成概览：正文收起来只留提问，滚轮也还给画布——
 // 卡片这时几乎铺满画布，鼠标无处可放，否则缩放就再也回不来。
 const READABLE_CARD_WIDTH = 150
+// 概览模式下卡片收成这么高（世界坐标）。固定值而不是跟着缩放变，
+// 连线才有稳定的锚点，不会飘在卡片外面。
+const OVERVIEW_CARD_HEIGHT = 96
 const state = {
   revision: 0,
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
@@ -473,20 +476,26 @@ function firstAvailableCardPosition(position, occupied) {
   }
 }
 
-function connectorPath(fromPosition, toPosition) {
+/** 概览模式下卡片被收矮了，连线要按当前这个高度取中点。 */
+function currentCardHeight() {
+  return state.zoom * CARD_WIDTH < READABLE_CARD_WIDTH ? OVERVIEW_CARD_HEIGHT : CARD_HEIGHT
+}
+
+function connectorPath(fromPosition, toPosition, cardHeight = CARD_HEIGHT) {
   const fromX = fromPosition.x + CARD_WIDTH
-  const fromY = fromPosition.y + CARD_HEIGHT / 2
+  const fromY = fromPosition.y + cardHeight / 2
   const toX = toPosition.x
-  const toY = toPosition.y + CARD_HEIGHT / 2
+  const toY = toPosition.y + cardHeight / 2
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
 }
 
 function connectorPathFromElements(fromCard, toCard) {
+  const cardHeight = currentCardHeight()
   const fromX = Number.parseFloat(fromCard.style.left) + CARD_WIDTH
-  const fromY = Number.parseFloat(fromCard.style.top) + CARD_HEIGHT / 2
+  const fromY = Number.parseFloat(fromCard.style.top) + cardHeight / 2
   const toX = Number.parseFloat(toCard.style.left)
-  const toY = Number.parseFloat(toCard.style.top) + CARD_HEIGHT / 2
+  const toY = Number.parseFloat(toCard.style.top) + cardHeight / 2
   if (![fromX, fromY, toX, toY].every(Number.isFinite)) return null
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
@@ -515,6 +524,20 @@ function cacheCardConnectors() {
   }
 }
 
+/** 卡片高度变了（进出概览模式），所有连线都要按新的中点重画。 */
+function redrawConnectors() {
+  const byId = state.canvasCardsById
+  const viewport = document.querySelector('.canvas-viewport')
+  if (byId === undefined || !(viewport instanceof HTMLElement)) return
+  const cardHeight = currentCardHeight()
+  for (const path of viewport.querySelectorAll('.connectors path[data-from]')) {
+    const from = byId.get(path.getAttribute('data-from'))
+    const to = byId.get(path.getAttribute('data-to'))
+    if (from === undefined || to === undefined) continue
+    path.setAttribute('d', connectorPath(from.position, to.position, cardHeight))
+  }
+}
+
 function refreshCardConnectors(cardId) {
   const paths = connectorPathsByCard.get(cardId)
   if (paths === undefined || paths.size === 0) return
@@ -529,7 +552,7 @@ function refreshCardConnectors(cardId) {
     if (fromCard === undefined || toCard === undefined) continue
     // Data-driven endpoints: the counterpart card may be unmounted (outside
     // the viewport) but its position is still authoritative.
-    path.setAttribute('d', connectorPath(fromCard.position, toCard.position))
+    path.setAttribute('d', connectorPath(fromCard.position, toCard.position, currentCardHeight()))
   }
 }
 
@@ -836,11 +859,11 @@ function canvasConnectors(cards) {
     const parent = card.parentId === null ? null : index.get(card.parentId)
     if (parent === undefined || parent === null) return ''
     const active = card.ccThreadId === state.activeId && parent.ccThreadId === state.activeId ? ' active-connector' : ''
-    return `<path class="${active.trim()}" data-from="${escapeHtml(parent.id)}" data-to="${escapeHtml(card.id)}" d="${connectorPath(parent.position, card.position)}"></path>`
+    return `<path class="${active.trim()}" data-from="${escapeHtml(parent.id)}" data-to="${escapeHtml(card.id)}" d="${connectorPath(parent.position, card.position, currentCardHeight())}"></path>`
   })
   const placement = draftPlacement(cards)
   if (placement !== null) {
-    links.push(`<path class="draft-connector" data-from="${escapeHtml(placement.parent.id)}" data-to="draft" d="${connectorPath(placement.parent.position, placement.position)}"></path>`)
+    links.push(`<path class="draft-connector" data-from="${escapeHtml(placement.parent.id)}" data-to="draft" d="${connectorPath(placement.parent.position, placement.position, currentCardHeight())}"></path>`)
   }
   return links.join('')
 }
@@ -856,7 +879,7 @@ function conversationCard(card, graph) {
   const foldLabel = collapsed ? '展开后续对话' : '折叠后续对话'
   const foldButton = childCount === 0 || card.canContinue === true ? '' : `<button class="graph-fold-button${collapsed ? ' collapsed' : ''}" data-action="toggle-card-children" data-card="${escapeHtml(card.id)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${foldLabel}" title="${foldLabel}"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3.5 8h9"/>${collapsed ? '<path d="M8 3.5v9"/>' : ''}</svg></button>`
   const branchButton = childCount === 0 || card.canContinue === true || !Number.isInteger(card.answer?.sourceSeq) ? '' : `<button class="graph-branch-button" data-action="open-branch" data-thread="${card.ccThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceSeq}" aria-label="在新对话中分支" title="在新对话中分支"><svg aria-hidden="true" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.0762 1.37207C14.0846 1.37228 14.9021 2.19077 14.9023 3.19922C14.9022 4.20772 14.0847 5.02518 13.0762 5.02539C12.2967 5.02539 11.6325 4.53691 11.3701 3.84961H4.35547C4.79397 4.26458 5.15861 4.7644 5.41699 5.33496L7.10645 9.06738C7.88526 10.7875 9.55104 11.9228 11.4189 12.0371C11.7085 11.4109 12.3411 10.9756 13.0762 10.9756C14.0843 10.9759 14.9023 11.7936 14.9023 12.8018C14.9023 13.81 14.0843 14.6277 13.0762 14.6279C12.2534 14.6279 11.5574 14.0832 11.3291 13.335C8.9868 13.1879 6.89981 11.7612 5.92285 9.60352L4.23242 5.87109C3.67503 4.64033 2.44878 3.84961 1.09766 3.84961V2.54883C1.10665 2.54883 1.11601 2.54975 1.125 2.5498L11.3701 2.54883C11.6326 1.86151 12.2969 1.37207 13.0762 1.37207ZM13.0762 12.2764C12.7858 12.2764 12.5508 12.5114 12.5508 12.8018C12.5508 13.0921 12.7858 13.3281 13.0762 13.3281C13.3664 13.3279 13.6025 13.092 13.6025 12.8018C13.6025 12.5115 13.3664 12.2766 13.0762 12.2764ZM13.0762 2.67285C12.7855 2.67285 12.55 2.90861 12.5498 3.19922C12.5499 3.48987 12.7855 3.72559 13.0762 3.72559C13.3667 3.72538 13.6024 3.48975 13.6025 3.19922C13.6023 2.90874 13.3666 2.67306 13.0762 2.67285Z" fill="currentColor"/></svg></button>`
-  return `<article class="thread-card ${selected}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.ccThreadId}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${cardColor(card)}">
+  return `<article class="thread-card ${selected}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.ccThreadId}" title="${escapeHtml(card.question)}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${cardColor(card)}">
     <button class="node-handle" data-drag-card="${card.id}" aria-label="拖动 ${escapeHtml(card.question)}" title="拖动卡片"></button>
     ${continueButton}${foldButton}${branchButton}
     <div class="thread-card-head"><span class="topic-dot"></span><button class="thread-title" data-action="show-thread" data-thread="${card.ccThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话：${escapeHtml(card.question)}">${escapeHtml(card.question)}</button></div>
@@ -1258,11 +1281,16 @@ function applyCanvasTransform() {
  * 正文在这个倍率下只是一片灰，留着既看不清又盖住了结构。用类切换而不是
  * 重新渲染，缩放过程中才不会掉帧。
  */
+let overviewApplied = null
 function syncOverviewMode() {
   const viewport = document.querySelector('.canvas-viewport')
   if (!(viewport instanceof HTMLElement)) return
   const overview = state.zoom * CARD_WIDTH < READABLE_CARD_WIDTH
+  const changed = overview !== overviewApplied
+  overviewApplied = overview
   viewport.classList.toggle('is-overview', overview)
+  // 两种模式的卡片高度不同，连线的锚点要跟着换，否则会飘在卡片外面。
+  if (changed) redrawConnectors()
   // 卡片跟着画布一起被缩放，字号要反向补偿才能在屏幕上保持同样大小。
   // 补偿到刚好可读的那一档为止，再往上就该看正文了。
   viewport.style.setProperty('--overview-scale', overview ? String(READABLE_CARD_WIDTH / CARD_WIDTH / state.zoom) : '1')

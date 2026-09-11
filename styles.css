@@ -456,7 +456,7 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .canvas-viewport.is-overview .card-followup-button { display: none; }
 
 .canvas-viewport.is-overview .thread-card {
-  height: calc(70px * var(--overview-scale, 1));
+  height: 96px;
   min-height: 0;
   grid-template-rows: auto;
   border-width: calc(1px * var(--overview-scale, 1));
@@ -466,8 +466,10 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
   transform-origin: top left;
 }
 .canvas-viewport.is-overview .thread-card-head {
-  padding: calc(14px * var(--overview-scale, 1));
-  gap: calc(10px * var(--overview-scale, 1));
+  height: 100%;
+  padding: calc(10px * var(--overview-scale, 1));
+  gap: calc(8px * var(--overview-scale, 1));
+  overflow: hidden;
 }
 /* 色点是这个倍率下唯一还能分辨的东西，放大成主体。 */
 .canvas-viewport.is-overview .topic-dot {
@@ -485,14 +487,11 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 /* 悬停：把这一张提到最上层，并让它显示完整的提问。
    只做层级和文字展开，不做缩放——卡片在画布的 transform 之下，
    叠一层 scale 会连带把它挪出原来的位置，反而不好定位。 */
+/* 悬停：把这一张提到最上层并加重阴影。
+   高度保持不变——改成 auto 会把卡片往上顶，看起来像跳了一下，
+   而字在这个倍率下本来就读不了，多显示几行没有意义。
+   要看内容用原生 title 提示，它不受画布缩放影响。 */
 .canvas-viewport.is-overview .thread-card:hover {
   z-index: 20;
-  height: auto;
-  box-shadow: 0 calc(4px * var(--overview-scale, 1)) calc(12px * var(--overview-scale, 1)) rgba(33,48,67,.28);
-}
-.canvas-viewport.is-overview .thread-card:hover .thread-title {
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
+  box-shadow: 0 calc(4px * var(--overview-scale, 1)) calc(12px * var(--overview-scale, 1)) rgba(33,48,67,.32);
 }

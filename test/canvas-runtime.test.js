@@ -266,6 +266,10 @@ test('collapses cards to markers once the canvas is zoomed far out', async () =>
   assert.match(source, /--overview-scale/)
   // 卡片缩到读不了正文时，滚轮必须还给画布，否则铺满屏幕后就缩放不回来了。
   assert.match(source, /state\.zoom \* CARD_WIDTH >= READABLE_CARD_WIDTH/)
+  // 两种模式的卡片高度不同，连线的锚点要跟着换，否则会飘在卡片外面。
+  assert.match(source, /function currentCardHeight\(/)
+  assert.match(source, /const OVERVIEW_CARD_HEIGHT = /)
+  assert.match(source, /if \(changed\) redrawConnectors\(\)/)
   assert.match(styles, /\.canvas-viewport\.is-overview \.thread-answer/)
   assert.match(styles, /var\(--overview-scale/)
 })
